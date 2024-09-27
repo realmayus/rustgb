@@ -1,4 +1,4 @@
-use crate::{Register, RegisterPair};
+use crate::{Flags, Register, RegisterPair};
 use std::fmt::{Debug, Formatter};
 
 /*
@@ -269,7 +269,7 @@ pub enum StackInstruction {
     DecSP,                 // Decrement SP.
     IncSP,                 // Increment SP.
     LdSPN16(u16),          // Load immediate value into SP.
-    LdN16SP(u16),          // Load SP into immediate value.
+    LdMemN16SP(u16),       // Store SP & $FF at address n16 and SP >> 8 at address n16 + 1.
     LdHLSPPlusE8(i8),      // Load SP plus immediate value into HL.
     LdSPHL,                // Load HL into SP.
     PopAF,                 // Pop value from stack into AF.
@@ -314,19 +314,4 @@ pub enum Instruction {
     Misc(MiscInstruction),
 }
 
-#[derive(Default)]
-pub struct RegisterPairValue(pub u16);
-impl RegisterPairValue {
-    fn high(&self) -> u8 {
-        (self.0 >> 8) as u8
-    }
-    fn low(&self) -> u8 {
-        (self.0 & 0xFF) as u8
-    }
-    fn set_high(&mut self, value: u8) {
-        self.0 = (self.0 & 0x00FF) | ((value as u16) << 8);
-    }
-    fn set_low(&mut self, value: u8) {
-        self.0 = (self.0 & 0xFF00) | (value as u16);
-    }
-}
+

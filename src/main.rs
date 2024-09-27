@@ -1,14 +1,17 @@
 mod cpu;
 mod disassembler;
 mod isa;
+mod arithmetic;
+mod memory;
 
 use bitflags::bitflags;
 use std::fs;
+use crate::cpu::Cpu;
 
 bitflags! {
     struct Flags: u8 {
         const CARRY = 0b00000001;
-        const ADD_SUBTRACT = 0b00000010;
+        const SUBTRACT = 0b00000010;
         const PARITY_OVERFLOW = 0b00000100;
         // Bit 4 is unused
         const HALF_CARRY = 0b00010000;
@@ -25,7 +28,7 @@ bitflags! {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 enum RegisterPair {
     BC,
     DE,
@@ -46,7 +49,7 @@ impl RegisterPair {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 enum Register {
     A,
     B,
@@ -72,6 +75,74 @@ impl Register {
     }
 }
 
+#[derive(Debug, Copy, Clone)]
+enum CartridgeType {
+    RomOnly,
+    Mbc1,
+    Mbc1Ram,
+    Mbc1RamBattery,
+    Mbc2,
+    Mbc2Battery,
+    RomRam,
+    RomRamBattery,
+    Mmm01,
+    Mmm01Sram,
+    Mmm01SramBattery,
+    Mbc3TimerBattery,
+    Mbc3TimerRamBattery,
+    Mbc3,
+    Mbc3Ram,
+    Mbc3RamBattery,
+    Mbc5,
+    Mbc5Ram,
+    Mbc5RamBattery,
+    Mbc5Rumble,
+    Mbc5RumbleSram,
+    Mbc5RumbleSramBattery,
+    Mbc6,
+    Mbc7SensorRumbleRamBattery,
+    PocketCamera,
+    BandaiTama5,
+    HuC3,
+    HuC1RamBattery,
+}
+
+impl From<u8> for CartridgeType {
+    fn from(value: u8) -> Self {
+        match value {
+            0x00 => CartridgeType::RomOnly,
+            0x01 => CartridgeType::Mbc1,
+            0x02 => CartridgeType::Mbc1Ram,
+            0x03 => CartridgeType::Mbc1RamBattery,
+            0x05 => CartridgeType::Mbc2,
+            0x06 => CartridgeType::Mbc2Battery,
+            0x08 => CartridgeType::RomRam,
+            0x09 => CartridgeType::RomRamBattery,
+            0x0B => CartridgeType::Mmm01,
+            0x0C => CartridgeType::Mmm01Sram,
+            0x0D => CartridgeType::Mmm01SramBattery,
+            0x0F => CartridgeType::Mbc3TimerBattery,
+            0x10 => CartridgeType::Mbc3TimerRamBattery,
+            0x11 => CartridgeType::Mbc3,
+            0x12 => CartridgeType::Mbc3Ram,
+            0x13 => CartridgeType::Mbc3RamBattery,
+            0x19 => CartridgeType::Mbc5,
+            0x1A => CartridgeType::Mbc5Ram,
+            0x1B => CartridgeType::Mbc5RamBattery,
+            0x1C => CartridgeType::Mbc5Rumble,
+            0x1D => CartridgeType::Mbc5RumbleSram,
+            0x1E => CartridgeType::Mbc5RumbleSramBattery,
+            0x20 => CartridgeType::Mbc6,
+            0x22 => CartridgeType::Mbc7SensorRumbleRamBattery,
+            0xFC => CartridgeType::PocketCamera,
+            0xFD => CartridgeType::BandaiTama5,
+            0xFE => CartridgeType::HuC3,
+            0xFF => CartridgeType::HuC1RamBattery,
+            _ => panic!("Invalid cartridge type {value}"),
+        }
+    }
+}
+
 pub fn main() {
     let rom = fs::read("test.gb").expect("Unable to read file");
 
@@ -81,5 +152,9 @@ pub fn main() {
         .collect::<String>();
     println!("Loading {title}...");
 
-    let cpu = Cpu::new();
+    let mbc = rom[0x147];
+    let type_ = CartridgeType::from(mbc);
+    println!("Memory Bank Controller: {type_:?}");
+
+    Cpu::new(rom).run();
 }
