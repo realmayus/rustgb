@@ -1,4 +1,3 @@
-use log::debug;
 use crate::isa::{ArithmeticInstruction, BitInstruction, Condition, Instruction, JumpInstruction, LoadInstruction, MiscInstruction, StackInstruction};
 use crate::{Register, RegisterPair};
 
@@ -14,11 +13,6 @@ impl Disassembler {
             bytes,
             cursor: 0,
         }
-    }
-
-    pub(crate) fn goto(&mut self, addr: u16) {
-        debug!("Going to address: {:04x}", addr);
-        self.cursor = addr as usize;
     }
 
     pub fn disassemble(&mut self, pc: u16) -> (Instruction, u16) {
@@ -49,7 +43,7 @@ impl Disassembler {
             (0, 0, 0, 0, 1, 1, 1, 1) => Instruction::Bit(BitInstruction::Rrca),
             (0, 0, 0, 1, 0, 1, 1, 1) => Instruction::Bit(BitInstruction::Rla),
             (0, 0, 0, 1, 1, 1, 1, 1) => Instruction::Bit(BitInstruction::Rra),
-            (0, 0, 1, 0, 0, 1, 1, 1) => Instruction::Misc(MiscInstruction::Daa),
+            (0, 0, 1, 0, 0, 1, 1, 1) => Instruction::Misc(MiscInstruction::DaA),
             (0, 0, 1, 0, 1, 1, 1, 1) => Instruction::Misc(MiscInstruction::Cpl),
             (0, 0, 1, 1, 0, 1, 1, 1) => Instruction::Misc(MiscInstruction::Scf),
             (0, 0, 1, 1, 1, 1, 1, 1) => Instruction::Misc(MiscInstruction::Ccf),

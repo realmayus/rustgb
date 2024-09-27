@@ -21,13 +21,6 @@ bitflags! {
     }
 }
 
-bitflags! {
-    struct InterruptFlags: u8 {
-        const IFF_1 = 0b00000001;
-        const IFF_2 = 0b00000010;
-    }
-}
-
 #[derive(Debug, Copy, Clone)]
 enum RegisterPair {
     BC,

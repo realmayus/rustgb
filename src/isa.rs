@@ -1,4 +1,4 @@
-use crate::{Flags, Register, RegisterPair};
+use crate::{Register, RegisterPair};
 use std::fmt::{Debug, Formatter};
 
 /*
@@ -264,7 +264,7 @@ PUSH r16
 
 #[derive(Debug)]
 pub enum StackInstruction {
-    AddHLSP,               // Add SP to HL.
+    AddHLSP,               // Add SP to HL.  TODO: why are there unused variants?
     AddSPE8(i8),           // Add immediate value to SP.
     DecSP,                 // Decrement SP.
     IncSP,                 // Increment SP.
@@ -295,7 +295,7 @@ STOP
 pub enum MiscInstruction {
     Ccf,  // Complement carry flag.
     Cpl,  // Complement A.
-    Daa,  // Decimal adjust A.
+    DaA,  // Decimal adjust A.
     Di,   // Disable interrupts.
     Ei,   // Enable interrupts.
     Halt, // Halt CPU.

@@ -561,7 +561,7 @@ impl Cpu {
         match instruction {
             MiscInstruction::Ccf => {}
             MiscInstruction::Cpl => {}
-            MiscInstruction::Daa => {}
+            MiscInstruction::DaA => {}
             MiscInstruction::Di => {}
             MiscInstruction::Ei => {}
             MiscInstruction::Halt => {}
