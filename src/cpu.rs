@@ -1,9 +1,10 @@
-use log::info;
+use log::{debug, info};
 use crate::disassembler::Disassembler;
-use crate::{Flags, Register, RegisterPair};
+use crate::{Flags, Register, RegisterPair, RegisterPairMem, RegisterPairStk};
 use crate::arithmetic::{op_adc, op_add, op_add16, op_and, op_bit, op_cp, op_dec, op_dec16, op_inc, op_inc16, op_or, op_res, op_rl, op_rlc, op_rr, op_rrc, op_sbc, op_set, op_sla, op_sra, op_srl, op_sub, op_swap, op_xor};
 use crate::isa::{ArithmeticInstruction, BitInstruction, Condition, Instruction, JumpInstruction, LoadInstruction, MiscInstruction, StackInstruction};
-use crate::memory::{Memory, RegisterPairValue};
+use crate::memory::{Interrupt, Memory, RegisterPairValue};
+use crate::timer::Timer;
 
 pub struct Cpu {
     af: RegisterPairValue,
@@ -12,22 +13,26 @@ pub struct Cpu {
     hl: RegisterPairValue,
     sp: RegisterPairValue,
     pc: RegisterPairValue,
-    disassembler: Disassembler,
     mem: Memory,
+    disassembler: Disassembler,
+    ime: bool,  // interrupt master enable
+    timer: Timer,
 }
 
 impl Cpu {
-    pub fn new(rom: Vec<u8>) -> Self {
-        let mem = Memory::new(&rom[0..0x3fff]);
+    pub fn new(boot_rom: Vec<u8>, rom: Vec<u8>) -> Self {
+        let mem = Memory::new(&boot_rom, &rom[0..0x3fff]);
         Self {
             af: RegisterPairValue::from(Flags::ZERO.bits() as u16),
             bc: RegisterPairValue::from(0x0013),
             de: RegisterPairValue::from(0x00D8),
             hl: RegisterPairValue::from(0x014D),
             sp: RegisterPairValue::from(0xFFFE),
-            pc: RegisterPairValue::from(0x0100),
-            disassembler: Disassembler::new(rom),
+            pc: RegisterPairValue::from(0x0000),
             mem,
+            disassembler: Disassembler::new(),
+            ime: true,
+            timer: Timer::new(),
         }
     }
 
@@ -57,7 +62,6 @@ impl Cpu {
 
     pub fn register_pair(&self, reg_pair_id: RegisterPair) -> u16 {
         match reg_pair_id {
-            RegisterPair::AF => self.af.as_u16(),
             RegisterPair::BC => self.bc.as_u16(),
             RegisterPair::DE => self.de.as_u16(),
             RegisterPair::HL => self.hl.as_u16(),
@@ -65,20 +69,62 @@ impl Cpu {
         }
     }
 
+    pub fn register_pair_mem(&mut self, reg_pair_id: RegisterPairMem) -> u16 {
+        match reg_pair_id {
+            RegisterPairMem::BC => self.bc.as_u16(),
+            RegisterPairMem::DE => self.de.as_u16(),
+            RegisterPairMem::HLI => { 
+                let res = self.hl.as_u16();
+                self.hl = RegisterPairValue::from(res.wrapping_add(1));
+                res
+            },
+            RegisterPairMem::HLD => {
+                let res = self.hl.as_u16();
+                self.hl = RegisterPairValue::from(res.wrapping_sub(1));
+                res
+            },
+        }
+    }
+
+    pub fn register_pair_stk(&self, reg_pair_id: RegisterPairStk) -> u16 {
+        match reg_pair_id {
+            RegisterPairStk::BC => self.bc.as_u16(),
+            RegisterPairStk::DE => self.de.as_u16(),
+            RegisterPairStk::HL => self.hl.as_u16(),
+            RegisterPairStk::AF => self.sp.as_u16(),
+        }
+    }
+
     pub fn register_pair_mut(&mut self, reg_pair_id: RegisterPair) -> &mut RegisterPairValue {
         match reg_pair_id {
-            RegisterPair::AF => &mut self.af,
             RegisterPair::BC => &mut self.bc,
             RegisterPair::DE => &mut self.de,
             RegisterPair::HL => &mut self.hl,
             RegisterPair::SP => &mut self.sp,
         }
     }
+    
+    pub fn register_pair_stk_mut(&mut self, reg_pair_id: RegisterPairStk) -> &mut RegisterPairValue {
+        match reg_pair_id {
+            RegisterPairStk::BC => &mut self.bc,
+            RegisterPairStk::DE => &mut self.de,
+            RegisterPairStk::HL => &mut self.hl,
+            RegisterPairStk::AF => &mut self.sp,
+        }
+    }
+    const VBLANK_RATE: f32 = 59.73;  // Hz
 
     pub fn run(&mut self) {
+        self.mem.enable_interrupt(Interrupt::VBlank, true);
+        let mut instant = std::time::Instant::now();
         loop {
-            println!("PC: {:#06X}", self.pc.as_u16());
-            let (instruction, new_pc) = self.disassembler.disassemble(self.pc.as_u16());
+            let elapsed = instant.elapsed();
+            if elapsed.as_secs_f32() >= 1.0 / Self::VBLANK_RATE {
+                instant = std::time::Instant::now();
+                self.vblank();
+            }
+            // println!("PC: {:#06X}", self.pc.as_u16());
+            let (instruction, new_pc) = self.disassembler.disassemble(&self.mem, self.pc.as_u16());
             self.pc = RegisterPairValue::from(new_pc);
             match instruction {
                 Instruction::Arithmetic(x) => self.eval_arithmetic(x),
@@ -88,6 +134,42 @@ impl Cpu {
                 Instruction::Stack(x) => self.eval_stack(x),
                 Instruction::Misc(x) => self.eval_misc(x),
             }
+            if self.ime && self.mem.requested_interrupts() != 0 {
+                self.handle_interrupt();
+            }
+            self.timer.cycle(&mut self.mem);
+        }
+    }
+    
+    fn vblank(&mut self) {
+        debug!("=== VBlank ===");
+        // request interrupt
+        self.mem.request_interrupt(Interrupt::VBlank);
+        // draw screen
+        
+    }
+    
+    fn handle_interrupt(&mut self) {
+        debug!("Handling interrupt");
+        let requested = self.mem.requested_interrupts();
+        debug!("Requested interrupts: {:#08b}", requested);
+        let enabled = self.mem.enabled_interrupts();
+        debug!("Enabled interrupts: {:#08b}", enabled);
+        let interrupt = requested & enabled; // todo priority?
+        
+        match Interrupt::from(interrupt) {
+            Interrupt::VBlank => {
+                debug!("Handling VBlank interrupt");
+                self.mem.clear_requested_interrupt(Interrupt::VBlank);
+                self.ime = false;
+                self.push(self.pc.high());
+                self.push(self.pc.low());
+                self.pc = RegisterPairValue::from(0x0040);
+            }
+            Interrupt::LcdStat => {}
+            Interrupt::Timer => {}
+            Interrupt::Serial => {}
+            Interrupt::Joypad => {}
         }
     }
 
@@ -365,7 +447,7 @@ impl Cpu {
                 *self.register_mut(reg) = self.mem.get(self.hl.as_u16());
             }
             LoadInstruction::LdMemR16A(reg) => {
-                let addr = self.register_pair(reg);
+                let addr = self.register_pair_mem(reg);
                 self.mem.update(addr, || self.af.high());
             }
             LoadInstruction::LdMemN16A(addr) => {
@@ -378,7 +460,7 @@ impl Cpu {
                 self.mem.update(0xFF00 + self.bc.low() as u16, || self.af.high());
             }
             LoadInstruction::LdAMemR16(reg) => {
-                let addr = self.register_pair(reg);
+                let addr = self.register_pair_mem(reg);
                 self.af.set_high(self.mem.get(addr));
             }
             LoadInstruction::LdAMemN16(addr) => {
@@ -407,7 +489,9 @@ impl Cpu {
                 self.hl = RegisterPairValue::from(self.hl.as_u16().wrapping_sub(1));
             }
             LoadInstruction::LdhAMemN8(addr) => {
-                self.af.set_high(self.mem.get(0xFF00 + addr as u16));
+                let val = self.mem.get(0xFF00 + addr as u16);
+                println!("Loading value {:#04X} from address {:#06X}", val, 0xFF00 + addr as u16);
+                self.af.set_high(val);
             }
             LoadInstruction::LdhMemN8A(addr) => {
                 self.mem.update(0xFF00 + addr as u16, || self.af.high());
@@ -479,7 +563,12 @@ impl Cpu {
                 let hi = self.pop().unwrap();
                 self.pc = RegisterPairValue::from((hi as u16) << 8 | lo as u16);
             }
-            JumpInstruction::Reti => {}
+            JumpInstruction::Reti => {
+                let lo = self.pop().unwrap();
+                let hi = self.pop().unwrap();
+                self.pc = RegisterPairValue::from((hi as u16) << 8 | lo as u16);
+                self.ime = true;
+            }
             JumpInstruction::Rst(vec) => {
                 self.push(self.pc.high());
                 self.push(self.pc.low());
@@ -517,14 +606,14 @@ impl Cpu {
                 self.sp = self.hl;
             }
             StackInstruction::PopAF => {
-                let lo = self.pop().unwrap();
                 let hi = self.pop().unwrap();
+                let lo = self.pop().unwrap();
                 self.af = RegisterPairValue::from((hi as u16) << 8 | lo as u16);
             }
             StackInstruction::PopR16(reg) => {
-                let lo = self.pop().unwrap();
                 let hi = self.pop().unwrap();
-                *self.register_pair_mut(reg) = RegisterPairValue::from((hi as u16) << 8 | lo as u16);
+                let lo = self.pop().unwrap();
+                *self.register_pair_stk_mut(reg) = RegisterPairValue::from((hi as u16) << 8 | lo as u16);
             }
             StackInstruction::PushAF => {
                 self.push(self.af.low());
@@ -532,25 +621,21 @@ impl Cpu {
             }
             StackInstruction::PushR16(reg) => {
                 match reg {
-                    RegisterPair::BC => {
+                    RegisterPairStk::BC => {
                         self.push(self.bc.low());
                         self.push(self.bc.high());
                     }
-                    RegisterPair::DE => {
+                    RegisterPairStk::DE => {
                         self.push(self.de.low());
                         self.push(self.de.high());
                     }
-                    RegisterPair::HL => {
+                    RegisterPairStk::HL => {
                         self.push(self.hl.low());
                         self.push(self.hl.high());
                     }
-                    RegisterPair::AF => {
+                    RegisterPairStk::AF => {
                         self.push(self.af.low());
                         self.push(self.af.high());
-                    }
-                    RegisterPair::SP => {
-                        self.push(self.sp.low());
-                        self.push(self.sp.high());
                     }
                 }
             }
@@ -559,14 +644,21 @@ impl Cpu {
 
     fn eval_misc(&mut self, instruction: MiscInstruction) {
         match instruction {
-            MiscInstruction::Ccf => {}
-            MiscInstruction::Cpl => {}
-            MiscInstruction::DaA => {}
-            MiscInstruction::Di => {}
-            MiscInstruction::Ei => {}
-            MiscInstruction::Halt => {}
+            MiscInstruction::Ccf => {todo!()}
+            MiscInstruction::Cpl => {todo!()}
+            MiscInstruction::DaA => {todo!()}
+            MiscInstruction::Di => {
+                unreachable!();
+                self.ime = false;
+                info!("Disabling interrupts...")
+            }
+            MiscInstruction::Ei => {
+                self.ime = true;
+                info!("Enabling interrupts...")
+            }
+            MiscInstruction::Halt => {todo!()}
             MiscInstruction::Nop => {}
-            MiscInstruction::Scf => {}
+            MiscInstruction::Scf => {todo!()}
             MiscInstruction::Stop => {
                 info!("Stopping CPU...")
             }

@@ -3,10 +3,14 @@ mod disassembler;
 mod isa;
 mod arithmetic;
 mod memory;
+mod ppu;
+mod timer;
 
 use bitflags::bitflags;
-use std::fs;
+use std::{fs, thread};
+use std::sync::mpsc;
 use crate::cpu::Cpu;
+use crate::ppu::Ppu;
 
 bitflags! {
     struct Flags: u8 {
@@ -27,7 +31,6 @@ enum RegisterPair {
     DE,
     HL,
     SP,
-    AF,
 }
 
 impl RegisterPair {
@@ -37,6 +40,46 @@ impl RegisterPair {
             (0, 1) => RegisterPair::DE,
             (1, 0) => RegisterPair::HL,
             (1, 1) => RegisterPair::SP,
+            _ => panic!("Invalid register pair bits"),
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+enum RegisterPairStk {
+    BC,
+    DE,
+    HL,
+    AF,
+}
+
+impl RegisterPairStk {
+    pub const fn from_bits(a: u8, b: u8) -> RegisterPairStk {
+        match (a, b) {
+            (0, 0) => RegisterPairStk::BC,
+            (0, 1) => RegisterPairStk::DE,
+            (1, 0) => RegisterPairStk::HL,
+            (1, 1) => RegisterPairStk::AF,
+            _ => panic!("Invalid register pair bits"),
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+enum RegisterPairMem {
+    BC,
+    DE,
+    HLI,
+    HLD,
+}
+
+impl RegisterPairMem {
+    pub const fn from_bits(a: u8, b: u8) -> RegisterPairMem {
+        match (a, b) {
+            (0, 0) => RegisterPairMem::BC,
+            (0, 1) => RegisterPairMem::DE,
+            (1, 0) => RegisterPairMem::HLI,
+            (1, 1) => RegisterPairMem::HLD,
             _ => panic!("Invalid register pair bits"),
         }
     }
@@ -136,8 +179,11 @@ impl From<u8> for CartridgeType {
     }
 }
 
+
 pub fn main() {
-    let rom = fs::read("test.gb").expect("Unable to read file");
+    env_logger::init();
+    let boot_rom = fs::read("boot.gb").expect("Unable to read boot rom");
+    let rom = fs::read("test.gb").expect("Unable to read rom");
 
     let title = rom[0x134..0x143]
         .iter()
@@ -149,5 +195,6 @@ pub fn main() {
     let type_ = CartridgeType::from(mbc);
     println!("Memory Bank Controller: {type_:?}");
 
-    Cpu::new(rom).run();
+    
+    Cpu::new(boot_rom, rom).run();
 }

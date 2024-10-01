@@ -1,4 +1,4 @@
-use crate::{Register, RegisterPair};
+use crate::{Register, RegisterPair, RegisterPairMem, RegisterPairStk};
 use std::fmt::{Debug, Formatter};
 
 /*
@@ -163,11 +163,11 @@ pub enum LoadInstruction {
     LdMemHLR8(Register),        // Store value in register r8 into memory pointed to by register HL.
     LdMemHLN8(u8),              // Store immediate value into memory pointed to by register HL.
     LdR8MemHL(Register),        // Load value in memory pointed to by register HL into register.
-    LdMemR16A(RegisterPair), // Store value in register A into memory pointed to by register pair.
+    LdMemR16A(RegisterPairMem), // Store value in register A into memory pointed to by register pair.
     LdMemN16A(u16),          // Store value in register A into memory pointed to by immediate value.
     LdhMemN16A(u16), // Store value in register A into memory pointed to by immediate value, high.
     LdhMemCA,        // Store value in register A into memory pointed to by register C, high.
-    LdAMemR16(RegisterPair), // Load value in memory pointed to by register pair into register A.
+    LdAMemR16(RegisterPairMem), // Load value in memory pointed to by register pair into register A.
     LdAMemN16(u16),  // Load value in memory pointed to by immediate value into register A.
     LdhAMemN16(u16), // Load value in memory pointed to by immediate value, high into register A.
     LdhAMemC,        // Load value in memory pointed to by register C, high into register A.
@@ -273,9 +273,9 @@ pub enum StackInstruction {
     LdHLSPPlusE8(i8),      // Load SP plus immediate value into HL.
     LdSPHL,                // Load HL into SP.
     PopAF,                 // Pop value from stack into AF.
-    PopR16(RegisterPair),  // Pop value from stack into register pair.
+    PopR16(RegisterPairStk),  // Pop value from stack into register pair.
     PushAF,                // Push value in AF onto stack.
-    PushR16(RegisterPair), // Push value in register pair onto stack.
+    PushR16(RegisterPairStk), // Push value in register pair onto stack.
 }
 
 /*

@@ -1,31 +1,31 @@
+use log::debug;
 use crate::isa::{ArithmeticInstruction, BitInstruction, Condition, Instruction, JumpInstruction, LoadInstruction, MiscInstruction, StackInstruction};
-use crate::{Register, RegisterPair};
+use crate::{Register, RegisterPair, RegisterPairMem, RegisterPairStk};
+use crate::memory::Memory;
 
 
 pub struct Disassembler {
-    bytes: Vec<u8>,
     cursor: usize,
 }
 
 impl Disassembler {
-    pub fn new(bytes: Vec<u8>) -> Disassembler {
+    pub fn new() -> Disassembler {
         Disassembler {
-            bytes,
             cursor: 0,
         }
     }
 
-    pub fn disassemble(&mut self, pc: u16) -> (Instruction, u16) {
+    pub fn disassemble(&mut self, mem: &Memory, pc: u16) -> (Instruction, u16) {
         self.cursor = pc as usize;
-        let byte = self.nom();
+        let byte = self.nom(mem);
 
         let instruction = match Self::bits_tup(byte) {
             // Block 0
             (0, 0, 0, 0, 0, 0, 0, 0) => { Instruction::Misc(MiscInstruction::Nop) },
-            (0, 0, a, b, 0, 0, 0, 1) => Instruction::Load(LoadInstruction::LdR16N16(RegisterPair::from_bits(a,b), self.nomnom())),
-            (0, 0, a, b, 0, 0, 1, 0) => Instruction::Load(LoadInstruction::LdMemR16A(RegisterPair::from_bits(a,b))),
-            (0, 0, a, b, 1, 0, 1, 0) => Instruction::Load(LoadInstruction::LdAMemR16(RegisterPair::from_bits(a,b))),
-            (0, 0, 0, 0, 1, 0, 0, 0) => Instruction::Stack(StackInstruction::LdMemN16SP(self.nomnom())),
+            (0, 0, a, b, 0, 0, 0, 1) => Instruction::Load(LoadInstruction::LdR16N16(RegisterPair::from_bits(a,b), self.nomnom(mem))),
+            (0, 0, a, b, 0, 0, 1, 0) => Instruction::Load(LoadInstruction::LdMemR16A(RegisterPairMem::from_bits(a,b))),
+            (0, 0, a, b, 1, 0, 1, 0) => Instruction::Load(LoadInstruction::LdAMemR16(RegisterPairMem::from_bits(a,b))),
+            (0, 0, 0, 0, 1, 0, 0, 0) => Instruction::Stack(StackInstruction::LdMemN16SP(self.nomnom(mem))),
 
             (0, 0, a, b, 0, 0, 1, 1) => Instruction::Arithmetic(ArithmeticInstruction::IncR16(RegisterPair::from_bits(a,b))),
             (0, 0, a, b, 1, 0, 1, 1) => Instruction::Arithmetic(ArithmeticInstruction::DecR16(RegisterPair::from_bits(a,b))),
@@ -36,8 +36,8 @@ impl Disassembler {
             (0, 0, 1, 1, 0, 1, 0, 1) => Instruction::Arithmetic(ArithmeticInstruction::DecMemHL),
             (0, 0, a, b, c, 1, 0, 1) => Instruction::Arithmetic(ArithmeticInstruction::DecR8(Register::from_bits(a,b,c))),
 
-            (0, 0, 1, 1, 0, 1, 1, 0) => Instruction::Load(LoadInstruction::LdMemHLN8(self.nom())),
-            (0, 0, a, b, c, 1, 1, 0) => Instruction::Load(LoadInstruction::LdR8N8(Register::from_bits(a,b,c), self.nom())),
+            (0, 0, 1, 1, 0, 1, 1, 0) => Instruction::Load(LoadInstruction::LdMemHLN8(self.nom(mem))),
+            (0, 0, a, b, c, 1, 1, 0) => Instruction::Load(LoadInstruction::LdR8N8(Register::from_bits(a,b,c), self.nom(mem))),
 
             (0, 0, 0, 0, 0, 1, 1, 1) => Instruction::Bit(BitInstruction::Rlca),
             (0, 0, 0, 0, 1, 1, 1, 1) => Instruction::Bit(BitInstruction::Rrca),
@@ -48,8 +48,8 @@ impl Disassembler {
             (0, 0, 1, 1, 0, 1, 1, 1) => Instruction::Misc(MiscInstruction::Scf),
             (0, 0, 1, 1, 1, 1, 1, 1) => Instruction::Misc(MiscInstruction::Ccf),
 
-            (0, 0, 0, 1, 1, 0, 0, 0) => Instruction::Jump(JumpInstruction::JrN8(self.nom() as i8)),
-            (0, 0, 1, a, b, 0, 0, 0) => Instruction::Jump(JumpInstruction::JrCCN8(Condition::from_bits(a,b), self.nom() as i8)),
+            (0, 0, 0, 1, 1, 0, 0, 0) => Instruction::Jump(JumpInstruction::JrN8(self.nom(mem) as i8)),
+            (0, 0, 1, a, b, 0, 0, 0) => Instruction::Jump(JumpInstruction::JrCCN8(Condition::from_bits(a,b), self.nom(mem) as i8)),
 
             (0, 0, 0, 1, 0, 0, 0, 0) => Instruction::Misc(MiscInstruction::Stop),
 
@@ -80,41 +80,41 @@ impl Disassembler {
             (1, 0, 1, 1, 1, a, b, c) => Instruction::Arithmetic(ArithmeticInstruction::CpAR8(Register::from_bits(a, b, c))),
 
             // Block 3
-            (1, 1, 0, 0, 0, 1, 1, 0) => Instruction::Arithmetic(ArithmeticInstruction::AddAN8(self.nom())),
-            (1, 1, 0, 0, 1, 1, 1, 0) => Instruction::Arithmetic(ArithmeticInstruction::AdcAN8(self.nom())),
-            (1, 1, 0, 1, 0, 1, 1, 0) => Instruction::Arithmetic(ArithmeticInstruction::SubAN8(self.nom())),
-            (1, 1, 0, 1, 1, 1, 1, 0) => Instruction::Arithmetic(ArithmeticInstruction::SbcAN8(self.nom())),
-            (1, 1, 1, 0, 0, 1, 1, 0) => Instruction::Arithmetic(ArithmeticInstruction::AndAN8(self.nom())),
-            (1, 1, 1, 0, 1, 1, 1, 0) => Instruction::Arithmetic(ArithmeticInstruction::XorAN8(self.nom())),
-            (1, 1, 1, 1, 0, 1, 1, 0) => Instruction::Arithmetic(ArithmeticInstruction::OrAN8(self.nom())),
-            (1, 1, 1, 1, 1, 1, 1, 0) => Instruction::Arithmetic(ArithmeticInstruction::CpAN8(self.nom())),
+            (1, 1, 0, 0, 0, 1, 1, 0) => Instruction::Arithmetic(ArithmeticInstruction::AddAN8(self.nom(mem))),
+            (1, 1, 0, 0, 1, 1, 1, 0) => Instruction::Arithmetic(ArithmeticInstruction::AdcAN8(self.nom(mem))),
+            (1, 1, 0, 1, 0, 1, 1, 0) => Instruction::Arithmetic(ArithmeticInstruction::SubAN8(self.nom(mem))),
+            (1, 1, 0, 1, 1, 1, 1, 0) => Instruction::Arithmetic(ArithmeticInstruction::SbcAN8(self.nom(mem))),
+            (1, 1, 1, 0, 0, 1, 1, 0) => Instruction::Arithmetic(ArithmeticInstruction::AndAN8(self.nom(mem))),
+            (1, 1, 1, 0, 1, 1, 1, 0) => Instruction::Arithmetic(ArithmeticInstruction::XorAN8(self.nom(mem))),
+            (1, 1, 1, 1, 0, 1, 1, 0) => Instruction::Arithmetic(ArithmeticInstruction::OrAN8(self.nom(mem))),
+            (1, 1, 1, 1, 1, 1, 1, 0) => Instruction::Arithmetic(ArithmeticInstruction::CpAN8(self.nom(mem))),
 
             (1, 1, 0, a, b, 0, 0, 0) => Instruction::Jump(JumpInstruction::RetCC(Condition::from_bits(a,b))),
             (1, 1, 0, 0, 1, 0, 0, 1) => Instruction::Jump(JumpInstruction::Ret),
             (1, 1, 0, 1, 1, 0, 0, 1) => Instruction::Jump(JumpInstruction::Reti),
-            (1, 1, 0, a, b, 0, 1, 0) => Instruction::Jump(JumpInstruction::JpCCN16(Condition::from_bits(a,b), self.nomnom())),
-            (1, 1, 0, 0, 0, 0, 1, 1) => Instruction::Jump(JumpInstruction::JpN16(self.nomnom())),
+            (1, 1, 0, a, b, 0, 1, 0) => Instruction::Jump(JumpInstruction::JpCCN16(Condition::from_bits(a,b), self.nomnom(mem))),
+            (1, 1, 0, 0, 0, 0, 1, 1) => Instruction::Jump(JumpInstruction::JpN16(self.nomnom(mem))),
             (1, 1, 1, 0, 1, 0, 0, 1) => Instruction::Jump(JumpInstruction::JpHL),
-            (1, 1, 0, a, b, 1, 0, 0) => Instruction::Jump(JumpInstruction::CallCCN16(Condition::from_bits(a,b), self.nomnom())),
-            (1, 1, 0, 0, 1, 1, 0, 1) => Instruction::Jump(JumpInstruction::CallN16(self.nomnom())),
-            (1, 1, a, b, c, 1, 1, 1) => Instruction::Jump(JumpInstruction::Rst(c | b << 1 | a << 2)),  // todo correct?
+            (1, 1, 0, a, b, 1, 0, 0) => Instruction::Jump(JumpInstruction::CallCCN16(Condition::from_bits(a,b), self.nomnom(mem))),
+            (1, 1, 0, 0, 1, 1, 0, 1) => Instruction::Jump(JumpInstruction::CallN16(self.nomnom(mem))),
+            (1, 1, a, b, c, 1, 1, 1) => Instruction::Jump(JumpInstruction::Rst(c << 2 | b << 1 | a)),  // todo correct?
 
             (1, 1, 1, 1, 0, 0, 0, 1) => Instruction::Stack(StackInstruction::PopAF),
-            (1, 1, a, b, 0, 0, 0, 1) => Instruction::Stack(StackInstruction::PopR16(RegisterPair::from_bits(a,b))),
+            (1, 1, a, b, 0, 0, 0, 1) => Instruction::Stack(StackInstruction::PopR16(RegisterPairStk::from_bits(a,b))),
             (1, 1, 1, 1, 0, 1, 0, 1) => Instruction::Stack(StackInstruction::PushAF),
-            (1, 1, a, b, 0, 1, 0, 1) => Instruction::Stack(StackInstruction::PushR16(RegisterPair::from_bits(a,b))),
+            (1, 1, a, b, 0, 1, 0, 1) => Instruction::Stack(StackInstruction::PushR16(RegisterPairStk::from_bits(a,b))),
 
-            (1, 1, 0, 0, 1, 0, 1, 1) => self.parse_prefix(),
+            (1, 1, 0, 0, 1, 0, 1, 1) => self.parse_prefix(mem),
 
             (1, 1, 1, 0, 0, 0, 1, 0) => Instruction::Load(LoadInstruction::LdhMemCA),
-            (1, 1, 1, 0, 0, 0, 0, 0) => Instruction::Load(LoadInstruction::LdhMemN8A(self.nom())),
-            (1, 1, 1, 0, 1, 0, 1, 0) => Instruction::Load(LoadInstruction::LdMemN16A(self.nomnom())),
+            (1, 1, 1, 0, 0, 0, 0, 0) => Instruction::Load(LoadInstruction::LdhMemN8A(self.nom(mem))),
+            (1, 1, 1, 0, 1, 0, 1, 0) => Instruction::Load(LoadInstruction::LdMemN16A(self.nomnom(mem))),
             (1, 1, 1, 1, 0, 0, 1, 0) => Instruction::Load(LoadInstruction::LdhAMemC),
-            (1, 1, 1, 1, 0, 0, 0, 0) => Instruction::Load(LoadInstruction::LdhAMemN8(self.nom())),
-            (1, 1, 1, 1, 1, 0, 1, 0) => Instruction::Load(LoadInstruction::LdAMemN16(self.nomnom())),
+            (1, 1, 1, 1, 0, 0, 0, 0) => Instruction::Load(LoadInstruction::LdhAMemN8(self.nom(mem))),
+            (1, 1, 1, 1, 1, 0, 1, 0) => Instruction::Load(LoadInstruction::LdAMemN16(self.nomnom(mem))),
 
-            (1, 1, 1, 0, 1, 0, 0, 0) => Instruction::Stack(StackInstruction::AddSPE8(self.nom() as i8)),
-            (1, 1, 1, 1, 1, 0, 0, 0) => Instruction::Stack(StackInstruction::LdHLSPPlusE8(self.nom() as i8)),
+            (1, 1, 1, 0, 1, 0, 0, 0) => Instruction::Stack(StackInstruction::AddSPE8(self.nom(mem) as i8)),
+            (1, 1, 1, 1, 1, 0, 0, 0) => Instruction::Stack(StackInstruction::LdHLSPPlusE8(self.nom(mem) as i8)),
             (1, 1, 1, 1, 1, 0, 0, 1) => Instruction::Stack(StackInstruction::LdSPHL),
 
             (1, 1, 1, 1, 0, 0, 1, 1) => Instruction::Misc(MiscInstruction::Di),
@@ -122,13 +122,13 @@ impl Disassembler {
 
             _ => panic!("Invalid instruction: {:08b}", byte),
         };
-        println!("{:?}", instruction);
+        debug!("{:?}", instruction);
         (instruction, self.cursor as u16)
     
     }
 
-    fn parse_prefix(&mut self) -> Instruction {
-        match Self::bits_tup(self.nom()) {
+    fn parse_prefix(&mut self, mem: &Memory) -> Instruction {
+        match Self::bits_tup(self.nom(mem)) {
             (0, 0, 0, 0, 0, 1, 1, 0) => Instruction::Bit(BitInstruction::RlcMemHL),
             (0, 0, 0, 0, 0, a, b, c) => Instruction::Bit(BitInstruction::Rlc(Register::from_bits(a,b,c))),
             (0, 0, 0, 0, 1, 1, 1, 0) => Instruction::Bit(BitInstruction::RrcMemHL),
@@ -146,12 +146,12 @@ impl Disassembler {
             (0, 0, 1, 1, 1, 1, 1, 0) => Instruction::Bit(BitInstruction::SrlMemHL),
             (0, 0, 1, 1, 1, a, b, c) => Instruction::Bit(BitInstruction::Srl(Register::from_bits(a,b,c))),
 
-            (0, 1, x, y, z, 1, 1, 0) => Instruction::Bit(BitInstruction::BitMemHL(x << 1 | y << 2 | z << 3)),
-            (0, 1, x, y, z, a, b, c) => Instruction::Bit(BitInstruction::Bit(x << 1 | y << 2 | z << 3, Register::from_bits(a,b,c))),
-            (1, 0, x, y, z, 1, 1, 0) => Instruction::Bit(BitInstruction::ResMemHL(x << 1 | y << 2 | z << 3)),
-            (1, 0, x, y, z, a, b, c) => Instruction::Bit(BitInstruction::Res(x << 1 | y << 2 | z << 3, Register::from_bits(a,b,c))),
-            (1, 1, x, y, z, 1, 1, 0) => Instruction::Bit(BitInstruction::SetMemHL(x << 1 | y << 2 | z << 3)),
-            (1, 1, x, y, z, a, b, c) => Instruction::Bit(BitInstruction::Set(x << 1 | y << 2 | z << 3, Register::from_bits(a,b,c))),
+            (0, 1, x, y, z, 1, 1, 0) => Instruction::Bit(BitInstruction::BitMemHL(x << 2 | y << 1 | z)),
+            (0, 1, x, y, z, a, b, c) => Instruction::Bit(BitInstruction::Bit(x << 2 | y << 1 | z, Register::from_bits(a,b,c))),
+            (1, 0, x, y, z, 1, 1, 0) => Instruction::Bit(BitInstruction::ResMemHL(x << 2 | y << 1 | z)),
+            (1, 0, x, y, z, a, b, c) => Instruction::Bit(BitInstruction::Res(x << 2 | y << 1 | z, Register::from_bits(a,b,c))),
+            (1, 1, x, y, z, 1, 1, 0) => Instruction::Bit(BitInstruction::SetMemHL(x << 2 | y << 1 | z)),
+            (1, 1, x, y, z, a, b, c) => Instruction::Bit(BitInstruction::Set(x << 2 | y << 1 | z, Register::from_bits(a,b,c))),
             x => panic!("Invalid prefix instruction: {:?}", x),
         }
     }
@@ -171,13 +171,13 @@ impl Disassembler {
         ((high as u16) << 8) | low as u16
     }
 
-    fn nom(&mut self) -> u8 {
+    fn nom(&mut self, memory: &Memory) -> u8 {
         self.cursor += 1;
-        self.bytes[self.cursor - 1]
+        memory.get((self.cursor - 1) as u16)
     }
 
-    fn nomnom(&mut self) -> u16 {
+    fn nomnom(&mut self, memory: &Memory) -> u16 {
         self.cursor += 2;
-        Self::u16_from_bytes(self.bytes[self.cursor - 1], self.bytes[self.cursor - 2])
+        Self::u16_from_bytes(memory.get((self.cursor - 1) as u16), memory.get((self.cursor - 2) as u16))
     }
 }
