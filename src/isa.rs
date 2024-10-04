@@ -224,7 +224,7 @@ pub enum JumpInstruction {
     RetCC(Condition),          // Return from subroutine if condition is met.
     Ret,                       // Return from subroutine.
     Reti,                      // Return from subroutine and enable interrupts.
-    Rst(u8),                   // Call subroutine at vector.
+    Rst(u16),                   // Call subroutine at vector.
 }
 
 // same as derived Debug impl but print u16, u8, i8 as hex

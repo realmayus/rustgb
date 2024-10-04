@@ -1,7 +1,7 @@
 use log::debug;
 use crate::isa::{ArithmeticInstruction, BitInstruction, Condition, Instruction, JumpInstruction, LoadInstruction, MiscInstruction, StackInstruction};
 use crate::{Register, RegisterPair, RegisterPairMem, RegisterPairStk};
-use crate::memory::Memory;
+use crate::memory::{Mbc, MappedMemory, Memory};
 
 
 pub struct Disassembler {
@@ -15,7 +15,7 @@ impl Disassembler {
         }
     }
 
-    pub fn disassemble(&mut self, mem: &Memory, pc: u16) -> (Instruction, u16) {
+    pub fn disassemble<M>(&mut self, mem: &M, pc: u16) -> (Instruction, u16) where M: crate::memory::Memory {
         self.cursor = pc as usize;
         let byte = self.nom(mem);
 
@@ -51,7 +51,7 @@ impl Disassembler {
             (0, 0, 0, 1, 1, 0, 0, 0) => Instruction::Jump(JumpInstruction::JrN8(self.nom(mem) as i8)),
             (0, 0, 1, a, b, 0, 0, 0) => Instruction::Jump(JumpInstruction::JrCCN8(Condition::from_bits(a,b), self.nom(mem) as i8)),
 
-            (0, 0, 0, 1, 0, 0, 0, 0) => Instruction::Misc(MiscInstruction::Stop),
+            (0, 0, 0, 1, 0, 0, 0, 0) => { Instruction::Misc(MiscInstruction::Stop) },
 
 
             // Block 1
@@ -97,7 +97,7 @@ impl Disassembler {
             (1, 1, 1, 0, 1, 0, 0, 1) => Instruction::Jump(JumpInstruction::JpHL),
             (1, 1, 0, a, b, 1, 0, 0) => Instruction::Jump(JumpInstruction::CallCCN16(Condition::from_bits(a,b), self.nomnom(mem))),
             (1, 1, 0, 0, 1, 1, 0, 1) => Instruction::Jump(JumpInstruction::CallN16(self.nomnom(mem))),
-            (1, 1, a, b, c, 1, 1, 1) => Instruction::Jump(JumpInstruction::Rst(c << 2 | b << 1 | a)),  // todo correct?
+            (1, 1, a, b, c, 1, 1, 1) => Instruction::Jump(JumpInstruction::Rst((a << 2 | b << 1 | c) as u16 * 8)),
 
             (1, 1, 1, 1, 0, 0, 0, 1) => Instruction::Stack(StackInstruction::PopAF),
             (1, 1, a, b, 0, 0, 0, 1) => Instruction::Stack(StackInstruction::PopR16(RegisterPairStk::from_bits(a,b))),
@@ -127,7 +127,7 @@ impl Disassembler {
     
     }
 
-    fn parse_prefix(&mut self, mem: &Memory) -> Instruction {
+    fn parse_prefix<M>(&mut self, mem: &M) -> Instruction where M: Memory {
         match Self::bits_tup(self.nom(mem)) {
             (0, 0, 0, 0, 0, 1, 1, 0) => Instruction::Bit(BitInstruction::RlcMemHL),
             (0, 0, 0, 0, 0, a, b, c) => Instruction::Bit(BitInstruction::Rlc(Register::from_bits(a,b,c))),
@@ -156,7 +156,7 @@ impl Disassembler {
         }
     }
 
-    const fn bits_tup(byte: u8) -> (u8, u8, u8, u8, u8, u8, u8, u8) {
+    pub const fn bits_tup(byte: u8) -> (u8, u8, u8, u8, u8, u8, u8, u8) {
         (byte >> 7 & 1,
          byte >> 6 & 1,
          byte >> 5 & 1,
@@ -171,12 +171,12 @@ impl Disassembler {
         ((high as u16) << 8) | low as u16
     }
 
-    fn nom(&mut self, memory: &Memory) -> u8 {
+    fn nom<M>(&mut self, memory: &M) -> u8 where M: Memory {
         self.cursor += 1;
         memory.get((self.cursor - 1) as u16)
     }
 
-    fn nomnom(&mut self, memory: &Memory) -> u16 {
+    fn nomnom<M>(&mut self, memory: &M) -> u16 where M: Memory {
         self.cursor += 2;
         Self::u16_from_bytes(memory.get((self.cursor - 1) as u16), memory.get((self.cursor - 2) as u16))
     }

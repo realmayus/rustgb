@@ -1,3 +1,4 @@
+use log::info;
 use crate::Flags;
 
 // Add the value in b plus the carry flag to a.
@@ -21,9 +22,9 @@ pub fn op_add(a: u8, b: u8, flags: &mut Flags) -> u8 {
 }
 
 pub fn op_add16(a: u16, b: u16, flags: &mut Flags) -> u16 {
-    *flags = Flags::empty();
     let result = a.wrapping_add(b);
     flags.set(Flags::HALF_CARRY, (a & 0xFFF) + (b & 0xFFF) > 0xFFF);
+    flags.set(Flags::SUBTRACT, false);
     flags.set(Flags::CARRY, (a as u32) + (b as u32) > 0xFFFF);
     result
 }
@@ -46,7 +47,6 @@ pub fn op_cp(a: u8, b: u8, flags: &mut Flags) {
 }
 
 pub fn op_dec(a: u8, flags: &mut Flags) -> u8 {
-    *flags = Flags::empty();
     let result = a.wrapping_sub(1);
     flags.set(Flags::ZERO, result == 0);
     flags.set(Flags::SUBTRACT, true);
@@ -55,9 +55,9 @@ pub fn op_dec(a: u8, flags: &mut Flags) -> u8 {
 }
 
 pub fn op_inc(a: u8, flags: &mut Flags) -> u8 {
-    *flags = Flags::empty();
     let result = a.wrapping_add(1);
     flags.set(Flags::ZERO, result == 0);
+    flags.set(Flags::SUBTRACT, false);
     flags.set(Flags::HALF_CARRY, (a & 0xF) == 0xF);
     result
 }
@@ -107,10 +107,11 @@ pub fn op_xor(a: u8, b: u8, flags: &mut Flags) -> u8 {
 }
 
 pub fn op_bit(index: u8, val: u8, flags: &mut Flags) {
+    let carry = flags.contains(Flags::CARRY);
     *flags = Flags::empty();
     flags.set(Flags::ZERO, val & (1 << index) == 0);
     flags.set(Flags::HALF_CARRY, true);
-    flags.set(Flags::PARITY_OVERFLOW, val & (1 << index) != 0);
+    flags.set(Flags::CARRY, carry);
 }
 
 pub fn op_res(index: u8, val: u8) -> u8 {
@@ -128,38 +129,38 @@ pub fn op_swap(val: u8, flags: &mut Flags) -> u8 {
     result
 }
 
-pub fn op_rl(val: u8, flags: &mut Flags) -> u8 {
+pub fn op_rl(val: u8, flags: &mut Flags, is_rla: bool) -> u8 {
+    let carry = if flags.contains(Flags::CARRY) { 1 } else { 0 };
     *flags = Flags::empty();
-    let carry = val >> 7;
     let result = (val << 1) | carry;
-    flags.set(Flags::ZERO, result == 0);
-    flags.set(Flags::CARRY, carry == 1);
+    flags.set(Flags::ZERO, !is_rla && result == 0);
+    flags.set(Flags::CARRY, val >> 7 == 1);
     result
 }
 
-pub fn op_rlc(val: u8, flags: &mut Flags) -> u8 {
+pub fn op_rlc(val: u8, flags: &mut Flags, is_rlca: bool) -> u8 {
     *flags = Flags::empty();
     let carry = val >> 7;
     let result = val.rotate_left(1);
-    flags.set(Flags::ZERO, result == 0);
+    flags.set(Flags::ZERO, !is_rlca && result == 0);
     flags.set(Flags::CARRY, carry == 1);
     result
 }
 
 pub fn op_rr(val: u8, flags: &mut Flags) -> u8 {
+    let carry = if flags.contains(Flags::CARRY) { 1 } else { 0 };
     *flags = Flags::empty();
-    let carry = val & 1;
     let result = (carry << 7) | (val >> 1);
     flags.set(Flags::ZERO, result == 0);
-    flags.set(Flags::CARRY, carry == 1);
+    flags.set(Flags::CARRY, val & 1 == 1);
     result
 }
 
-pub fn op_rrc(val: u8, flags: &mut Flags) -> u8 {
+pub fn op_rrc(val: u8, flags: &mut Flags, is_rrca: bool) -> u8 {
     *flags = Flags::empty();
     let carry = val & 1;
     let result = val.rotate_right(1);
-    flags.set(Flags::ZERO, result == 0);
+    flags.set(Flags::ZERO, !is_rrca && result == 0);
     flags.set(Flags::CARRY, carry == 1);
     result
 }
