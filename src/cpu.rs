@@ -26,6 +26,7 @@ pub struct Cpu<M: Memory> {
     pub(crate) last_cycle: Instant,
     pub recv: Receiver<ControlMsg>,
     halted: bool,
+    terminate: bool
 }
 
 impl<M> Cpu<M> where M: Memory {
@@ -44,6 +45,7 @@ impl<M> Cpu<M> where M: Memory {
             last_cycle: Instant::now(),
             recv,
             halted: false,
+            terminate: false,
         }
     }
 
@@ -124,10 +126,19 @@ impl<M> Cpu<M> where M: Memory {
         }
     }
     
+    pub fn run(&mut self) { 
+        while !self.terminate {
+            if let Ok(msg) = self.recv.try_recv() {
+                self.control_message(msg);
+            }
+            self.cycle();
+        }
+    }
+    
     pub fn cycle(&mut self) {
         if self.stall > 0 {
             self.stall -= 1;
-        } else if !self.halted { 
+        } else if !self.halted {
             let (instruction, new_pc) = self.disassembler.disassemble(&self.mem, self.pc.as_u16());
             self.pc = RegisterPairValue::from(new_pc);
             match instruction {
@@ -140,7 +151,7 @@ impl<M> Cpu<M> where M: Memory {
             }
         }
         self.handle_interrupt();
-        
+
         
         self.mem.cycle();
         self.last_cycle = Instant::now();
@@ -194,6 +205,7 @@ impl<M> Cpu<M> where M: Memory {
                 self.pc = RegisterPairValue::from(0x0060);
             }
         }
+        self.stall = 4; // indeed 4 full cycles because we don't fetch an instruction
     }
 
     fn eval_arithmetic(&mut self, instruction: ArithmeticInstruction) {
@@ -816,6 +828,13 @@ impl<M> Cpu<M> where M: Memory {
                 self.halted = true; // TODO: not sure if this is correct...
                 info!("Stopping CPU...")
             }
+        }
+    }
+    
+    pub fn control_message(&mut self, msg: ControlMsg) {
+        match msg {
+            ControlMsg::Terminate => self.terminate = true,
+            _ => self.mem.control_msg(msg),
         }
     }
 }

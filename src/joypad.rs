@@ -1,14 +1,14 @@
 
 
 pub struct Joypad {
-    row0: u8,
-    row1: u8,
     data: u8,
+    buttons: u8,
+    dpad: u8,
     pub interrupt: u8,
 }
 
-#[derive(Copy, Clone)]
-pub enum KeypadKey {
+#[derive(Copy, Clone, Debug)]
+pub enum JoypadKey {
     Right,
     Left,
     Up,
@@ -22,15 +22,21 @@ pub enum KeypadKey {
 impl Joypad {
     pub fn new() -> Joypad {
         Joypad {
-            row0: 0x0F,
-            row1: 0x0F,
             data: 0xFF,
+            buttons: 0x0F,
+            dpad: 0x0F,
             interrupt: 0,
         }
     }
 
     pub fn read(&self) -> u8 {
-        self.data
+        if self.data & 0x20 == 0 {
+            self.buttons
+        } else if self.data & 0x10 == 0 {
+            self.dpad
+        } else {
+            0xFF
+        }
     }
 
     pub fn write(&mut self, value: u8) {
@@ -39,47 +45,43 @@ impl Joypad {
     }
 
     fn update(&mut self) {
-        let old_values = self.data & 0xF;
-        let mut new_values = 0xF;
-
-        if self.data & 0x10 == 0x00 {
-            new_values &= self.row0;
+        let mut new_interrupt = 0;
+        if self.data & 0x20 == 0 {
+            if self.buttons & 0x0F != 0x0F {
+                new_interrupt = 1;
+            }
+        } else if self.data & 0x10 == 0 {
+            if self.dpad & 0x0F != 0x0F {
+                new_interrupt = 1;
+            }
         }
-        if self.data & 0x20 == 0x00 {
-            new_values &= self.row1;
-        }
-
-        if old_values == 0xF && new_values != 0xF {
-            self.interrupt |= 0x10;
-        }
-
-        self.data = (self.data & 0xF0) | new_values;
+        self.interrupt = new_interrupt;
     }
 
-    pub fn keydown(&mut self, key: KeypadKey) {
+    pub fn keydown(&mut self, key: JoypadKey) {
         match key {
-            KeypadKey::Right =>  self.row0 &= !(1 << 0),
-            KeypadKey::Left =>   self.row0 &= !(1 << 1),
-            KeypadKey::Up =>     self.row0 &= !(1 << 2),
-            KeypadKey::Down =>   self.row0 &= !(1 << 3),
-            KeypadKey::A =>      self.row1 &= !(1 << 0),
-            KeypadKey::B =>      self.row1 &= !(1 << 1),
-            KeypadKey::Select => self.row1 &= !(1 << 2),
-            KeypadKey::Start =>  self.row1 &= !(1 << 3),
+            JoypadKey::Right => self.dpad &= !(1 << 0),
+            JoypadKey::Left => self.dpad &= !(1 << 1),
+            JoypadKey::Up => self.dpad &= !(1 << 2),
+            JoypadKey::Down => self.dpad &= !(1 << 3),
+            JoypadKey::A => self.buttons &= !(1 << 0),
+            JoypadKey::B => self.buttons &= !(1 << 1),
+            JoypadKey::Select => self.buttons &= !(1 << 2),
+            JoypadKey::Start => self.buttons &= !(1 << 3),
         }
         self.update();
     }
 
-    pub fn keyup(&mut self, key: KeypadKey) {
+    pub fn keyup(&mut self, key: JoypadKey) {
         match key {
-            KeypadKey::Right =>  self.row0 |= 1 << 0,
-            KeypadKey::Left =>   self.row0 |= 1 << 1,
-            KeypadKey::Up =>     self.row0 |= 1 << 2,
-            KeypadKey::Down =>   self.row0 |= 1 << 3,
-            KeypadKey::A =>      self.row1 |= 1 << 0,
-            KeypadKey::B =>      self.row1 |= 1 << 1,
-            KeypadKey::Select => self.row1 |= 1 << 2,
-            KeypadKey::Start =>  self.row1 |= 1 << 3,
+            JoypadKey::Right => self.dpad |= 1 << 0,
+            JoypadKey::Left => self.dpad |= 1 << 1,
+            JoypadKey::Up => self.dpad |= 1 << 2,
+            JoypadKey::Down => self.dpad |= 1 << 3,
+            JoypadKey::A => self.buttons |= 1 << 0,
+            JoypadKey::B => self.buttons |= 1 << 1,
+            JoypadKey::Select => self.buttons |= 1 << 2,
+            JoypadKey::Start => self.buttons |= 1 << 3,
         }
         self.update();
     }

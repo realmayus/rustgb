@@ -33,6 +33,7 @@ impl Timer {
         if self.timer_countdown == 0 && timer_enabled {  // if timer is enabled
             self.tima = self.tima.wrapping_add(1);
             if self.tima == 0 {
+                self.tima = self.tma;
                 interrupt = Some(Interrupt::Timer);
             }
         }

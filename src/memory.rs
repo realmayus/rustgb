@@ -1,7 +1,7 @@
 use std::sync::mpsc::Sender;
 use bitflags::bitflags;
 use log::{debug, info, warn};
-use crate::{Flags};
+use crate::{ControlMsg, Flags};
 use crate::joypad::Joypad;
 use crate::ppu::Ppu;
 use crate::serial::Serial;
@@ -78,23 +78,29 @@ impl Mbc for RomOnlyMbc {
     }
 }
 
+
+
 pub trait Memory {
     fn get(&self, addr: u16) -> u8;
     fn write(&mut self, addr: u16, value: u8);
-    
+
     fn update<F>(&mut self, addr: u16, closure: F) where F: FnOnce() -> u8;
-    
+
     fn cycle(&mut self);
-    
+
     fn enable_interrupt(&mut self, interrupt: Interrupt, enable: bool);
-    
+
     fn enabled_interrupts(&self) -> u8;
-    
+
     fn request_interrupt(&mut self, interrupt: u8);
-    
+
     fn requested_interrupts(&self) -> u8;
-    
+
     fn clear_requested_interrupt(&mut self, interrupt: Interrupt);
+
+    fn control_msg(&mut self, msg: ControlMsg) {
+        panic!("This memory implementation does not support control messages.")
+    }
 }
 
 pub struct MappedMemory<MBC: Mbc> {
@@ -221,7 +227,7 @@ impl<MBC> Memory for MappedMemory<MBC> where MBC: Mbc {
             0xFFFF => self.int_enable = value,
             0xFEA0..=0xFEFF => { /* Unusable memory */ }
             _ => warn!("Write to unimplemented memory address: {:02X?}", addr),
-        
+
         }
     }
 
@@ -238,6 +244,12 @@ impl<MBC> Memory for MappedMemory<MBC> where MBC: Mbc {
         self.ppu.cycle();
         if self.ppu.interrupt != 0 {
             self.request_interrupt(self.ppu.interrupt);
+            self.ppu.interrupt = 0;
+        }
+        if self.joypad.interrupt != 0 {
+            println!("Requesting joypad interrupt");
+            self.request_interrupt(self.joypad.interrupt);
+            self.joypad.interrupt = 0;
         }
     }
 
@@ -255,6 +267,7 @@ impl<MBC> Memory for MappedMemory<MBC> where MBC: Mbc {
     }
 
     fn request_interrupt(&mut self, interrupt: u8) {
+        debug!("Requesting interrupt: {:02X?}", interrupt);
         self.int_request |= interrupt;
     }
 
@@ -265,6 +278,20 @@ impl<MBC> Memory for MappedMemory<MBC> where MBC: Mbc {
 
     fn clear_requested_interrupt(&mut self, interrupt: Interrupt) {
         self.int_request &= !u8::from(interrupt);
+    }
+
+
+    fn control_msg(&mut self, msg: ControlMsg) {
+        println!("Received control message: {:?}", msg);
+        match msg {
+            ControlMsg::Debug => { println!("{:08b}", self.enabled_interrupts()) },
+            ControlMsg::ShowVRam(show) => {
+                self.ppu.show_vram = show;
+            },
+            ControlMsg::KeyDown(key) => self.joypad.keydown(key),
+            ControlMsg::KeyUp(key) => self.joypad.keyup(key),
+            _ => panic!("Unhandled control message: {:?}", msg),
+        }
     }
 }
 

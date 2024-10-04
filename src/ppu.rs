@@ -3,8 +3,10 @@
 
 use std::cmp::PartialEq;
 use std::sync::mpsc::Sender;
+use std::sync::{Arc, Mutex};
 use bitflags::bitflags;
 use eframe::egui::Color32;
+use eframe::egui::debug_text::print;
 use log::{debug, error, info};
 use crate::FrameData;
 use crate::memory::{Interrupt, Mbc, MappedMemory};
@@ -20,6 +22,15 @@ bitflags! {
         const MODE_1 = 0b01;
         const MODE_0 = 0b00;
     }
+}
+
+macro_rules! set_pixel {
+    ($self:ident, $x:expr, $r:expr, $g:expr, $b:expr, $a:expr) => {
+        $self.framebuffer[($self.line as usize * SCREEN_WIDTH * 4) + $x as usize * 4] = $r;
+        $self.framebuffer[($self.line as usize * SCREEN_WIDTH * 4) + $x as usize * 4 + 1] = $g;
+        $self.framebuffer[($self.line as usize * SCREEN_WIDTH * 4) + $x as usize * 4 + 2] = $b;
+        $self.framebuffer[($self.line as usize * SCREEN_WIDTH * 4) + $x as usize * 4 + 3] = $a;
+    };
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq,)]
@@ -62,8 +73,8 @@ impl Default for Palette {
 }
 
 pub struct Ppu {
+    pub show_vram: bool,
     mode: PpuMode,
-    send: Sender<FrameData>,
     pub mode_counter: usize,
     framebuffer: [u8; 160 * 144 * 4],
     vram: [u8; 0x2000],
@@ -73,7 +84,7 @@ pub struct Ppu {
 
     bg_win_enable: bool,
     obj_enable: bool,
-    obj_size: bool,
+    obj_size: u8,
     bg_tile_map: bool,
     bg_win_tile_data: bool,
     win_enable: bool,
@@ -85,8 +96,8 @@ pub struct Ppu {
     mode_2_int: bool,
     lyc_int: bool,
 
-    viewport_x: u8,
-    viewport_y: u8,
+    viewport_x: u8, // SCX
+    viewport_y: u8, // SCY
 
     bg_palette: Palette,
     obj_palette_0: Palette,
@@ -101,6 +112,8 @@ pub struct Ppu {
     vblank: bool,
     win_y_trigger: bool,
     pub(crate) interrupt: u8,
+    pub displaybuffer: Arc<Mutex<Vec<Color32>>>,
+    pub displaybuffer_dirty: Arc<Mutex<bool>>,
 }
 
 // makes it easier to work with tiles, directly converts weird 16 byte format to 8x8 pixel format
@@ -139,17 +152,19 @@ impl Tile {
 }
 
 impl Ppu {
-    pub fn new(send: Sender<FrameData>) -> Self {
+    pub fn new(displaybuffer: Arc<Mutex<Vec<Color32>>>, displaybuffer_dirty: Arc<Mutex<bool>>) -> Self {
         Self {
+            show_vram: false,
             mode: PpuMode::HBlank,
             mode_counter: 0,
             framebuffer: [255; 160 * 144 * 4],
+            displaybuffer,
+            displaybuffer_dirty,
             line: 0,
             lyc: 0,
-            send,
             bg_win_enable: false,
             obj_enable: false,
-            obj_size: false,
+            obj_size: 8,
             bg_tile_map: false,
             bg_win_tile_data: false,
             win_enable: false,
@@ -170,6 +185,8 @@ impl Ppu {
             oam: [0; 0xa0],
             win_y_trigger: false,
             tiles: core::array::from_fn(|_| Tile::from_raw([0; 16])),
+            tile_map_0: [0; 0x400],
+            tile_map_1: [0; 0x400],
             interrupt: 0,
             hblank: false,
             vblank: false,
@@ -188,18 +205,22 @@ impl Ppu {
                 self.interrupt |= self.set_mode(PpuMode::VBlank);
             }
         }
-        
+
         if self.line < 144 {
             if self.mode_counter <= 20 {
-                self.interrupt |= self.set_mode(PpuMode::OamScan);
+                if self.mode != PpuMode::OamScan {
+                    self.interrupt |= self.set_mode(PpuMode::OamScan);
+                }
             } else if self.mode_counter <= 63 {
-                self.interrupt |= self.set_mode(PpuMode::DrawingPixels);
-            } else if self.mode_counter <= 114 {
+                if self.mode != PpuMode::DrawingPixels {
+                    self.interrupt |= self.set_mode(PpuMode::DrawingPixels);
+                }
+            } else if self.mode != PpuMode::HBlank {
                 self.interrupt |= self.set_mode(PpuMode::HBlank);
             }
         }
     }
-    
+
     fn set_mode(&mut self, mode: PpuMode) -> u8 {
         self.mode = mode;
         self.vblank = false;
@@ -221,13 +242,12 @@ impl Ppu {
                 if self.mode_0_int { u8::from(Interrupt::LcdStat) } else { 0 }
             }
             PpuMode::VBlank => {
-                self.send
-                    .send(FrameData { framebuffer: self.framebuffer.chunks_exact(4)
-                    .map(|pixel| Color32::from_rgba_unmultiplied(pixel[0], pixel[1], pixel[2], pixel[3])).collect::<Vec<_>>() })
-                    .unwrap();
+                *self.displaybuffer.lock().unwrap() = self.framebuffer.chunks_exact(4)
+                    .map(|pixel| Color32::from_rgba_unmultiplied(pixel[0], pixel[1], pixel[2], pixel[3])).collect::<Vec<_>>();
+                *self.displaybuffer_dirty.lock().unwrap() = true;
                 self.win_y_trigger = false;
                 self.vblank = true;
-                if self.mode_1_int { u8::from(Interrupt::LcdStat) | u8::from(Interrupt::VBlank) } else { 0 }
+                if self.mode_1_int { u8::from(Interrupt::LcdStat) | u8::from(Interrupt::VBlank) } else { u8::from(Interrupt::VBlank) }
             }
         }
     }
@@ -243,7 +263,7 @@ impl Ppu {
                 reg |= (self.win_enable as u8) << 5;
                 reg |= (self.bg_win_tile_data as u8) << 4;
                 reg |= (self.bg_tile_map as u8) << 3;
-                reg |= (self.obj_size as u8) << 2;
+                reg |= ((self.obj_size != 8) as u8) << 2;
                 reg |= (self.obj_enable as u8) << 1;
                 reg |= self.bg_win_enable as u8;
                 reg
@@ -298,22 +318,33 @@ impl Ppu {
         match addr {
             0xff40 => {
                 let initial_lcd_enable = self.lcd_enable;
+                let initial_bg_win_enable = self.bg_win_enable;
                 self.lcd_enable = value & 0b10000000 != 0;
                 self.win_tile_map = value & 0b01000000 != 0;
                 self.win_enable = value & 0b00100000 != 0;
                 self.bg_win_tile_data = value & 0b00010000 != 0;
                 self.bg_tile_map = value & 0b00001000 != 0;
-                self.obj_size = value & 0b00000100 != 0;
+                self.obj_size = if value & 0b00000100 != 0 { 16 } else { 8 };
                 self.obj_enable = value & 0b00000010 != 0;
                 self.bg_win_enable = value & 0b00000001 != 0;
                 let toggled_lcd_off = initial_lcd_enable && !self.lcd_enable;
-                
+                let toggled_lcd_on = !initial_lcd_enable && self.lcd_enable;
                 if toggled_lcd_off {
+                    info!("LCD turned off");
                     self.line = 0;
                     self.mode = PpuMode::OamScan;
                     self.win_y_trigger = false;
                     self.mode_counter = 0;
-                    self.clear_framebuffer();
+                    self.clear_framebuffer(0);
+                }
+                if toggled_lcd_on { 
+                    info!("LCD turned on");
+                }
+                if self.bg_win_enable && !initial_bg_win_enable {
+                    info!("Background and window rendering enabled");
+                }
+                if !self.bg_win_enable && initial_bg_win_enable {
+                    info!("Background and window rendering disabled");
                 }
             }
             0xff41 => {
@@ -323,9 +354,13 @@ impl Ppu {
                 self.mode_0_int = value & 0b00001000 != 0;
             }
             0xff42 => {
-                self.viewport_y = value },
+                info!("Setting viewport y to {}", value);
+                self.viewport_y = value
+            },
             0xff43 => {
-                self.viewport_x = value },
+                info!("Setting viewport x to {}", value);
+                self.viewport_x = value
+            },
             0xff45 => {
                 self.lyc = value;
                 if self.lyc_int && self.line == self.lyc {
@@ -356,48 +391,68 @@ impl Ppu {
                 self.window_x = value },
             0x8000..=0x97ff => {
                 self.tiles[(addr - 0x8000) as usize / 16].set_byte((addr - 0x8000) as usize % 16, value) },
-            0x9800..=0x9bff => 
+            0x9800..=0x9bff =>
                 self.tile_map_0[(addr - 0x9800) as usize] = value,
-            0x9c00..=0x9fff => 
+            0x9c00..=0x9fff =>
                 self.tile_map_1[(addr - 0x9c00) as usize] = value,
-            
+
             0xFE00..=0xFE9F => {
                 self.oam[(addr - 0xFE00) as usize] = value },
             _ => unimplemented!("PPU write to unimplemented register: {:#06x}", addr),
         }
     }
-
-    // we need it in rgba for egui to display (even though game boy doesn't support rgba, obviously)
-    pub fn set_pixel_rgba(&mut self, x: u8, r: u8, g: u8, b: u8, a: u8) {
-        self.framebuffer[(self.line as usize * SCREEN_WIDTH * 4) + x as usize * 4] = r;
-        self.framebuffer[(self.line as usize * SCREEN_WIDTH * 4) + x as usize * 4 + 1] = g;
-        self.framebuffer[(self.line as usize * SCREEN_WIDTH * 4) + x as usize * 4 + 2] = b;
-        self.framebuffer[(self.line as usize * SCREEN_WIDTH * 4) + x as usize * 4 + 3] = a;
-    }
     pub fn render_scanline(&mut self) {
-        self.render_background();
-        self.dump_vram();
+        self.clear_scanline(0);
+        if self.show_vram {
+            self.dump_vram();
+            return
+        }
+        if self.bg_win_enable {
+            self.render_background();
+        } else {
+            self.clear_scanline(255);
+        }
+        if self.obj_enable {
+            self.render_objects();
+        }
+        // self.dump_vram();
         // self.render_sprites();
     }
 
     fn render_background(&mut self) {
-        if self.line % 2 == 0 {
-            for x in 0..SCREEN_WIDTH {
-                let color = Color32::from_rgba_unmultiplied(96, 96, 96, 255);
-                self.set_pixel_rgba(x as u8, color.r(), color.g(), color.b(), color.a());
+        let tilemap = if self.bg_tile_map { &self.tile_map_1 } else { &self.tile_map_0 };
+        let scx = self.viewport_x;
+        let scy = self.viewport_y;
+        
+        let tilemap_line = self.line as usize / 8;
+        for (i, tile_id) in tilemap[tilemap_line * 32..(tilemap_line + 1) * 32].iter().enumerate() {
+            let tile_index = if self.bg_win_tile_data { *tile_id as usize } else { 
+                (0x100 + *tile_id as i8 as i16) as usize
+            };
+            let tile = self.tiles[tile_index].pixels;
+            for x in 0..8 {
+                let tile_line = scy as usize + self.line as usize % 8;
+                let color = match tile[tile_line * 8 + x] {
+                    0 => Color32::from_rgba_unmultiplied(255, 255, 255, 255),
+                    1 => Color32::from_rgba_unmultiplied(192, 192, 192, 255),
+                    2 => Color32::from_rgba_unmultiplied(96, 96, 96, 255),
+                    3 => Color32::from_rgba_unmultiplied(0, 0, 0, 255),
+                    _ => unreachable!(),
+                };
+                let draw_at = scx as usize + i * 8 + (8-x);
+                if draw_at < SCREEN_WIDTH {
+                    set_pixel!(self, draw_at as u8, color.r(), color.g(), color.b(), color.a());
+                }
             }
         }
     }
+
+    fn clear_framebuffer(&mut self, color: u8) {
+        self.framebuffer = [color; 160 * 144 * 4];
+    }
     
-    fn clear_framebuffer(&mut self) {
-        let initial_line = self.line;
-        for y in 0..SCREEN_HEIGHT {
-            self.line = y as u8;
-            for x in 0..SCREEN_WIDTH {
-                self.set_pixel_rgba(x as u8, 0, 0, 0, 255);
-            }
-        }
-        self.line = initial_line;
+    fn clear_scanline(&mut self, color: u8) {
+        self.framebuffer[self.line as usize * SCREEN_WIDTH * 4..(self.line as usize + 1) * SCREEN_WIDTH * 4].fill(color);
     }
 
     // render all loaded sprites on the current scanline
@@ -408,9 +463,8 @@ impl Ppu {
             let tile_index = tile_y as usize * 20 + tile_x;
             let tile = &self.tiles[tile_index];
             let pixels = tile.pixels;
-            let tile_line = self.line % 8;
             for x in 0..8 {
-                let pixel = pixels[tile_line as usize * 8 + x as usize];
+                let pixel = pixels[self.line as usize % 8 * 8 + x as usize];
                 let color = match pixel {
                     0 => Color32::from_rgba_unmultiplied(255, 255, 255, 255),
                     1 => Color32::from_rgba_unmultiplied(192, 192, 192, 255),
@@ -418,12 +472,59 @@ impl Ppu {
                     3 => Color32::from_rgba_unmultiplied(0, 0, 0, 255),
                     _ => unreachable!(),
                 };
-                self.set_pixel_rgba(tile_x as u8 * 8 + x as u8, color.r(), color.g(), color.b(), color.a());
+                set_pixel!(self, tile_x as u8 * 8 + x as u8, color.r(), color.g(), color.b(), color.a());
             }
         }
     }
-    
-    fn render_sprites() {
-        
+
+    // renders all sprites on the current scanline
+    fn render_objects(&mut self) {
+        // all objects that are visible on the current scanline
+        let mut draw = self.oam
+            .chunks_exact(4)
+            .filter(|obj| {
+                let y = obj[0] as i32 - 16;
+                let x = obj[1] as i32 - 8;
+                y <= self.line as i32 && y + self.obj_size as i32 > self.line as i32
+            })
+            .collect::<Vec<_>>();
+        draw.sort_by_key(|obj| obj[1]);  // todo do we need to sort this?
+        for obj in draw {
+            let x = obj[1] as i32 - 8;  // sprite's position on screen
+            let y = obj[0] as i32 - 16;
+            let tile_id = obj[2];
+            let flags = obj[3];
+            let palette = flags & 0b00010000 != 0;
+            let flip_x = flags & 0b00100000 != 0;
+            let flip_y = flags & 0b01000000 != 0;
+            let priority = flags & 0b10000000 == 0; // 1 is above background
+            let tile = self.tiles[tile_id as usize].pixels;
+            for i in 0..8 {
+                let i = if flip_x { 7 - i } else { i };
+                let sprite_line = self.line as i32 - y;
+                let line = if flip_y { 7 - sprite_line } else { sprite_line };
+                let pixel = tile[line as usize * 8 + i as usize];
+                if pixel == 0 { continue; }
+                let color = match pixel {
+                    0 => Color32::from_rgba_unmultiplied(255, 255, 255, 255),
+                    1 => Color32::from_rgba_unmultiplied(192, 192, 192, 255),
+                    2 => Color32::from_rgba_unmultiplied(96, 96, 96, 255),
+                    3 => Color32::from_rgba_unmultiplied(0, 0, 0, 255),
+                    _ => unreachable!(),
+                };
+                set_pixel!(self, x.wrapping_add(8-i), color.r(), color.g(), color.b(), color.a());
+            }
+        }
+    }
+
+    pub(crate) fn debug(&self) {
+        // print tilemap as matrix
+        for y in 0..32 {
+            for x in 0..32 {
+                print!("{:02X} ", self.tile_map_0[y * 32 + x]);
+            }
+            print!("\n");
+        }
     }
 }
+

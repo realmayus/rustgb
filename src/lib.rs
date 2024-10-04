@@ -11,7 +11,7 @@ pub mod timer;
 mod apu;
 pub mod ui;
 mod serial;
-mod joypad;
+pub mod joypad;
 
 
 bitflags! {
@@ -184,6 +184,11 @@ pub struct FrameData {
     pub framebuffer: Vec<Color32>,
 }
 
+#[derive(Debug, Copy, Clone)]
 pub enum ControlMsg {
     Terminate,
+    Debug,
+    ShowVRam(bool),
+    KeyDown(joypad::JoypadKey),
+    KeyUp(joypad::JoypadKey),
 }
