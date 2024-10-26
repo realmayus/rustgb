@@ -95,6 +95,7 @@ pub trait Memory {
     fn request_interrupt(&mut self, interrupt: u8);
 
     fn requested_interrupts(&self) -> u8;
+    fn set_requested_interrupts(&mut self, value: u8);
 
     fn clear_requested_interrupt(&mut self, interrupt: Interrupt);
 
@@ -224,7 +225,10 @@ impl<MBC> Memory for MappedMemory<MBC> where MBC: Mbc {
             0xFF0F => self.int_request = value,
             0xFF10..=0xFF3F => { /* audio */ }
             0xFF80..=0xFFFE => self.high_ram[(addr - 0xFF80) as usize] = value,
-            0xFFFF => self.int_enable = value,
+            0xFFFF => { 
+                println!("Setting interrupt enable to {:08b}", value);
+                self.int_enable = value 
+            },
             0xFEA0..=0xFEFF => { /* Unusable memory */ }
             _ => warn!("Write to unimplemented memory address: {:02X?}", addr),
 
@@ -247,7 +251,7 @@ impl<MBC> Memory for MappedMemory<MBC> where MBC: Mbc {
             self.ppu.interrupt = 0;
         }
         if self.joypad.interrupt != 0 {
-            println!("Requesting joypad interrupt");
+            // println!("Requesting joypad interrupt");
             self.request_interrupt(self.joypad.interrupt);
             self.joypad.interrupt = 0;
         }
@@ -267,7 +271,6 @@ impl<MBC> Memory for MappedMemory<MBC> where MBC: Mbc {
     }
 
     fn request_interrupt(&mut self, interrupt: u8) {
-        debug!("Requesting interrupt: {:02X?}", interrupt);
         self.int_request |= interrupt;
     }
 
@@ -275,6 +278,9 @@ impl<MBC> Memory for MappedMemory<MBC> where MBC: Mbc {
         self.int_request
     }
 
+    fn set_requested_interrupts(&mut self, value: u8) {
+        self.int_request = value;
+    }
 
     fn clear_requested_interrupt(&mut self, interrupt: Interrupt) {
         self.int_request &= !u8::from(interrupt);
@@ -336,7 +342,9 @@ impl<const SIZE:usize> Memory for LinearMemory<SIZE> {
             self.int_enable &= !mask;
         }
     }
-
+    fn set_requested_interrupts(&mut self, value: u8) {
+        self.int_request = value;
+    }
     fn enabled_interrupts(&self) -> u8 {
         self.int_enable
     }

@@ -127,7 +127,6 @@ impl eframe::App for App {
             if self.show_vram != initial_show_vram {
                 self.send_to_cpu.send(ControlMsg::ShowVRam(self.show_vram)).unwrap();
             }
-
         });
         ctx.request_repaint();
     }
@@ -140,9 +139,15 @@ pub fn main() {
         .filter_level(log::LevelFilter::Info)
         .filter(Some("rustgb::cpu"), log::LevelFilter::Debug)
         .filter(Some("rustgb::memory"), log::LevelFilter::Debug)
+        .filter(Some("rustgb::joypad"), log::LevelFilter::Debug)
         // .filter(Some("rustgb::disassembler"), log::LevelFilter::Debug)
         // .filter(Some("rustgb::ppu"), log::LevelFilter::Info)
         .init();
+
+
+    let server_addr = "127.0.0.1:8585";
+    let _server = puffin_http::Server::new(&server_addr).unwrap();
+    
     // let boot_rom = fs::read("boot.gb").expect("Unable to read boot rom");
     // let boot_rom = fs::read("gb-test-roms-master/cpu_instrs/individual/04-op r,imm.gb").expect("Unable to read boot rom");
     

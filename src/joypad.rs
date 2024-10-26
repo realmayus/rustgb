@@ -1,4 +1,4 @@
-
+use log::debug;
 
 pub struct Joypad {
     data: u8,
@@ -19,6 +19,12 @@ pub enum JoypadKey {
     Start,
 }
 
+impl Default for Joypad {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Joypad {
     pub fn new() -> Joypad {
         Joypad {
@@ -30,32 +36,38 @@ impl Joypad {
     }
 
     pub fn read(&self) -> u8 {
-        if self.data & 0x20 == 0 {
+        let out = if self.data & 0x20 == 0 {
             self.buttons
         } else if self.data & 0x10 == 0 {
             self.dpad
         } else {
             0xFF
-        }
+        };
+        debug!("Joypad read out: {:#X}", out);
+        out
     }
 
     pub fn write(&mut self, value: u8) {
+        debug!("Joypad write: {:#X}", value);
         self.data = (self.data & 0xCF) | (value & 0x30);
         self.update();
     }
 
     fn update(&mut self) {
-        let mut new_interrupt = 0;
-        if self.data & 0x20 == 0 {
-            if self.buttons & 0x0F != 0x0F {
-                new_interrupt = 1;
-            }
-        } else if self.data & 0x10 == 0 {
-            if self.dpad & 0x0F != 0x0F {
-                new_interrupt = 1;
-            }
+        let old_data = self.data & 0xF;
+        let mut new_data = 0xF;
+        
+        if self.data & 0x10 == 0 {
+            new_data &= self.dpad;
         }
-        self.interrupt = new_interrupt;
+        if self.data & 0x20 == 0 {
+            new_data &= self.buttons;
+        }
+        if old_data == 0xF && new_data != 0xF {
+            self.interrupt = 1;
+        }
+        
+        self.data = (self.data & 0xF0) | new_data;
     }
 
     pub fn keydown(&mut self, key: JoypadKey) {

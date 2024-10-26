@@ -3,6 +3,7 @@ use crate::FrameData;
 use crate::ControlMsg;
 use std::sync::mpsc::{Receiver, Sender};
 use std::time::Instant;
+use eframe::egui::debug_text::print;
 use log::{debug, info};
 use crate::disassembler::Disassembler;
 use crate::arithmetic::{op_adc, op_add, op_add16, op_and, op_bit, op_cp, op_dec, op_dec16, op_inc, op_inc16, op_or, op_res, op_rl, op_rlc, op_rr, op_rrc, op_sbc, op_set, op_sla, op_sra, op_srl, op_sub, op_swap, op_xor};
@@ -26,7 +27,9 @@ pub struct Cpu<M: Memory> {
     pub(crate) last_cycle: Instant,
     pub recv: Receiver<ControlMsg>,
     halted: bool,
-    terminate: bool
+    terminate: bool,
+    di_ctr: u8, // delay di instruction
+    ei_ctr: u8, // delay ei instruction
 }
 
 impl<M> Cpu<M> where M: Memory {
@@ -46,6 +49,8 @@ impl<M> Cpu<M> where M: Memory {
             recv,
             halted: false,
             terminate: false,
+            di_ctr: 0,
+            ei_ctr: 0,
         }
     }
 
@@ -126,16 +131,43 @@ impl<M> Cpu<M> where M: Memory {
         }
     }
     
-    pub fn run(&mut self) { 
+    pub fn run(&mut self) {
+        let frame_time = 16.74 / 1000.0; // s
+        let cycles_per_frame = 70224 / 4;
         while !self.terminate {
-            if let Ok(msg) = self.recv.try_recv() {
-                self.control_message(msg);
+            puffin::profile_scope!("Cpu::cycle");
+            puffin::GlobalProfiler::lock().new_frame();
+            
+            
+           
+            let before_frame = Instant::now();
+            for _ in 0..cycles_per_frame {
+                if let Ok(msg) = self.recv.try_recv() {
+                    self.control_message(msg);
+                }
+                self.cycle();
             }
-            self.cycle();
+            let elapsed = before_frame.elapsed().as_secs_f64() * 1000.0;
+            
+            if elapsed < frame_time {
+                // print!("delaying next cycle by {} ms", (cycle_time - elapsed) * 1000.0);
+                std::thread::sleep(std::time::Duration::from_secs_f64(frame_time - elapsed));
+            }
         }
     }
     
     pub fn cycle(&mut self) {
+        puffin::profile_function!();
+        self.last_cycle = Instant::now();
+        if self.di_ctr == 1 {
+            self.ime = false;
+        }
+        if self.ei_ctr == 1 {
+            self.ime = true;
+        }
+        self.di_ctr = self.di_ctr.saturating_sub(1);
+        self.ei_ctr = self.ei_ctr.saturating_sub(1);
+        
         if self.stall > 0 {
             self.stall -= 1;
         } else if !self.halted {
@@ -154,11 +186,10 @@ impl<M> Cpu<M> where M: Memory {
 
         
         self.mem.cycle();
-        self.last_cycle = Instant::now();
     }
     
     fn handle_interrupt(&mut self) {
-        if !self.ime && self.halted {
+        if !self.ime && !self.halted {
             return;
         }
         let triggered = self.mem.enabled_interrupts() & self.mem.requested_interrupts();
@@ -169,43 +200,43 @@ impl<M> Cpu<M> where M: Memory {
         if !self.ime {
             return;
         }
-        debug!("Handling interrupt");
         let requested = self.mem.requested_interrupts();
-        debug!("Requested interrupts: {:#08b}", requested);
         let enabled = self.mem.enabled_interrupts();
-        debug!("Enabled interrupts: {:#08b}", enabled);
         let interrupt = Interrupt::from(requested & enabled); // todo priority?
 
         self.ime = false;
         self.push(self.pc.as_u16());
         match interrupt {
             Interrupt::VBlank => {
-                debug!("Handling VBlank interrupt");
                 self.mem.clear_requested_interrupt(Interrupt::VBlank);
                 self.pc = RegisterPairValue::from(0x0040);
             }
             Interrupt::LcdStat => {
+                debug!("Requested interrupts: {:#08b}, enabled: {:#08b}", requested, enabled);
                 debug!("Handling LCD Stat interrupt");
                 self.mem.clear_requested_interrupt(Interrupt::LcdStat);
                 self.pc = RegisterPairValue::from(0x0048);
             }
             Interrupt::Timer => {
+                debug!("Requested interrupts: {:#08b}, enabled: {:#08b}", requested, enabled);
                 debug!("Handling Timer interrupt");
                 self.mem.clear_requested_interrupt(Interrupt::Timer);
                 self.pc = RegisterPairValue::from(0x0050);
             }
             Interrupt::Serial => {
+                debug!("Requested interrupts: {:#08b}, enabled: {:#08b}", requested, enabled);
                 debug!("Handling Serial interrupt");
                 self.mem.clear_requested_interrupt(Interrupt::Serial);
                 self.pc = RegisterPairValue::from(0x0058);
             }
             Interrupt::Joypad => {
+                debug!("Requested interrupts: {:#08b}, enabled: {:#08b}", requested, enabled);
                 debug!("Handling Joypad interrupt");
                 self.mem.clear_requested_interrupt(Interrupt::Joypad);
                 self.pc = RegisterPairValue::from(0x0060);
             }
         }
-        self.stall = 4; // indeed 4 full cycles because we don't fetch an instruction
+        self.stall += 4; // indeed 4 full cycles because we don't fetch an instruction
     }
 
     fn eval_arithmetic(&mut self, instruction: ArithmeticInstruction) {
@@ -805,11 +836,11 @@ impl<M> Cpu<M> where M: Memory {
                 self.af.set_low(flags.bits());
             }
             MiscInstruction::Di => {
-                self.ime = false;
+                self.di_ctr = 2;
                 info!("Disabling interrupts...")
             }
             MiscInstruction::Ei => {
-                self.ime = true;
+                self.ei_ctr = 2;
                 info!("Enabling interrupts...")
             }
             MiscInstruction::Halt => {

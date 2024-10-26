@@ -38,10 +38,10 @@ impl Timer {
             }
         }
         let duration = match self.tac & 0b11 {
-            0b00 => 1024,
-            0b01 => 16,
-            0b10 => 64,
-            0b11 => 256,
+            0b00 => 256,
+            0b01 => 4,
+            0b10 => 16,
+            0b11 => 64,
             _ => unreachable!(),
         };
         self.timer_countdown = duration;
@@ -49,6 +49,7 @@ impl Timer {
     }
     
     pub fn read(&self, addr: u16) -> u8 {
+        println!("Timer read: {:#X}", addr);
         match addr {
             0xFF04 => self.div,
             0xFF05 => self.tima,
@@ -59,6 +60,7 @@ impl Timer {
     }
     
     pub fn write(&mut self, addr: u16, value: u8) {
+        println!("Timer write: {:#X} {:#X}", addr, value);
         match addr {
             0xFF04 => self.div = value,
             0xFF05 => self.tima = value,

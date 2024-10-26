@@ -194,6 +194,7 @@ impl Ppu {
     }
 
     pub fn cycle(&mut self) {
+        puffin::profile_function!();
         self.mode_counter += 1;
         if self.mode_counter >= 114 {  // time it takes to render a scanline
             self.mode_counter -= 114;
@@ -222,6 +223,7 @@ impl Ppu {
     }
 
     fn set_mode(&mut self, mode: PpuMode) -> u8 {
+        puffin::profile_function!();
         self.mode = mode;
         self.vblank = false;
         self.hblank = false;
@@ -242,16 +244,20 @@ impl Ppu {
                 if self.mode_0_int { u8::from(Interrupt::LcdStat) } else { 0 }
             }
             PpuMode::VBlank => {
-                *self.displaybuffer.lock().unwrap() = self.framebuffer.chunks_exact(4)
-                    .map(|pixel| Color32::from_rgba_unmultiplied(pixel[0], pixel[1], pixel[2], pixel[3])).collect::<Vec<_>>();
-                *self.displaybuffer_dirty.lock().unwrap() = true;
+                self.post_frame();
                 self.win_y_trigger = false;
                 self.vblank = true;
                 if self.mode_1_int { u8::from(Interrupt::LcdStat) | u8::from(Interrupt::VBlank) } else { u8::from(Interrupt::VBlank) }
             }
         }
     }
-
+    
+    fn post_frame(&mut self) {
+        puffin::profile_function!();
+        *self.displaybuffer.lock().unwrap() = self.framebuffer.chunks_exact(4)
+            .map(|pixel| Color32::from_rgba_unmultiplied(pixel[0], pixel[1], pixel[2], pixel[3])).collect::<Vec<_>>();
+        *self.displaybuffer_dirty.lock().unwrap() = true;
+    }
 
 
     pub fn read(&self, addr: u16) -> u8 {
@@ -354,11 +360,9 @@ impl Ppu {
                 self.mode_0_int = value & 0b00001000 != 0;
             }
             0xff42 => {
-                info!("Setting viewport y to {}", value);
                 self.viewport_y = value
             },
             0xff43 => {
-                info!("Setting viewport x to {}", value);
                 self.viewport_x = value
             },
             0xff45 => {
@@ -402,6 +406,7 @@ impl Ppu {
         }
     }
     pub fn render_scanline(&mut self) {
+        puffin::profile_function!();
         self.clear_scanline(0);
         if self.show_vram {
             self.dump_vram();
@@ -420,12 +425,14 @@ impl Ppu {
     }
 
     fn render_background(&mut self) {
+        puffin::profile_function!();
         let tilemap = if self.bg_tile_map { &self.tile_map_1 } else { &self.tile_map_0 };
         let scx = self.viewport_x;
         let scy = self.viewport_y;
         
         let tilemap_line = self.line as usize / 8;
         for (i, tile_id) in tilemap[tilemap_line * 32..(tilemap_line + 1) * 32].iter().enumerate() {
+            puffin::profile_scope!("Render bg tile");
             let tile_index = if self.bg_win_tile_data { *tile_id as usize } else { 
                 (0x100 + *tile_id as i8 as i16) as usize
             };
@@ -448,15 +455,18 @@ impl Ppu {
     }
 
     fn clear_framebuffer(&mut self, color: u8) {
+        puffin::profile_function!();
         self.framebuffer = [color; 160 * 144 * 4];
     }
     
     fn clear_scanline(&mut self, color: u8) {
+        puffin::profile_function!();
         self.framebuffer[self.line as usize * SCREEN_WIDTH * 4..(self.line as usize + 1) * SCREEN_WIDTH * 4].fill(color);
     }
 
     // render all loaded sprites on the current scanline
     fn dump_vram(&mut self) {
+        puffin::profile_function!();
         // tiles are 8x8. we are rendering just a single scanline in this function. lay out all tiles in a row, wrapping to the next row
         for tile_x in 0..20 { // can fit 20 tiles on screen
             let tile_y = self.line / 8;
@@ -479,6 +489,7 @@ impl Ppu {
 
     // renders all sprites on the current scanline
     fn render_objects(&mut self) {
+        puffin::profile_function!();
         // all objects that are visible on the current scanline
         let mut draw = self.oam
             .chunks_exact(4)
@@ -488,8 +499,9 @@ impl Ppu {
                 y <= self.line as i32 && y + self.obj_size as i32 > self.line as i32
             })
             .collect::<Vec<_>>();
-        draw.sort_by_key(|obj| obj[1]);  // todo do we need to sort this?
+        // draw.sort_by_key(|obj| obj[1]);  // todo do we need to sort this?
         for obj in draw {
+            puffin::profile_scope!("Render sprite");
             let x = obj[1] as i32 - 8;  // sprite's position on screen
             let y = obj[0] as i32 - 16;
             let tile_id = obj[2];
