@@ -1,5 +1,5 @@
 use rustgb::cpu::Cpu;
-use rustgb::memory::{LinearMemory, Mbc, Memory, RegisterPairValue, RomOnlyMbc};
+use rustgb::memory::{LinearMemory, Mbc, Memory, RegisterPairValue};
 use rustgb::{Register, RegisterPair, RegisterPairStk};
 use std::fs;
 use std::sync::mpsc;

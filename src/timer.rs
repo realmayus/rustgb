@@ -1,4 +1,4 @@
-use crate::memory::{Interrupt, MappedMemory};
+use crate::memory::Interrupt;
 
 pub struct Timer {
     div: u8,
@@ -7,6 +7,12 @@ pub struct Timer {
     tac: u8,
     div_countdown: u8,
     timer_countdown: i32,
+}
+
+impl Default for Timer {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Timer {

@@ -1,4 +1,3 @@
-use bitflags::bitflags;
 use eframe::egui::{Color32, Context, TextureOptions};
 use eframe::epaint::TextureHandle;
 use eframe::{egui, Frame};
@@ -11,10 +10,8 @@ use rustgb::timer::Timer;
 use rustgb::ui::FrameHistory;
 use rustgb::{CartridgeType, ControlMsg, FrameData};
 use std::collections::HashSet;
-use std::fmt::format;
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{mpsc, Arc, Mutex};
-use std::time::Instant;
 use std::{fs, thread};
 
 struct App {
@@ -53,7 +50,7 @@ impl eframe::App for App {
         ctx.input(|i| {
             let keys = &i.keys_down;
             let new_keys = keys.difference(&self.keys).collect::<HashSet<_>>();
-            let released_keys = self.keys.difference(&keys).collect::<HashSet<_>>();
+            let released_keys = self.keys.difference(keys).collect::<HashSet<_>>();
             if new_keys.contains(&egui::Key::W) {
                 self.send_to_cpu
                     .send(ControlMsg::KeyDown(JoypadKey::Up))
@@ -181,7 +178,7 @@ pub fn main() {
         .init();
 
     let server_addr = "127.0.0.1:8585";
-    let _server = puffin_http::Server::new(&server_addr).unwrap();
+    let _server = puffin_http::Server::new(server_addr).unwrap();
 
     // let boot_rom = fs::read("boot.gb").expect("Unable to read boot rom");
     // let boot_rom = fs::read("gb-test-roms-master/cpu_instrs/individual/04-op r,imm.gb").expect("Unable to read boot rom");

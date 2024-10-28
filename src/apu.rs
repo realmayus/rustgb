@@ -1,4 +1,3 @@
-use crate::memory::MappedMemory;
 
 struct Apu {}
 

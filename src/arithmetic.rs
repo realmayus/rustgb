@@ -1,5 +1,4 @@
 use crate::Flags;
-use log::info;
 
 // Add the value in b plus the carry flag to a.
 pub fn op_adc(a: u8, b: u8, flags: &mut Flags) -> u8 {

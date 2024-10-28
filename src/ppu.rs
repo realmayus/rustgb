@@ -1,13 +1,10 @@
 // pixel processing unit
 
-use crate::memory::{Interrupt, MappedMemory, Mbc};
-use crate::FrameData;
+use crate::memory::{Interrupt, Mbc};
 use bitflags::bitflags;
-use eframe::egui::debug_text::print;
 use eframe::egui::Color32;
-use log::{debug, error, info};
+use log::info;
 use std::cmp::PartialEq;
-use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 
 bitflags! {
@@ -310,7 +307,7 @@ impl Ppu {
             0xff45 => self.lyc,
             0xff47 => {
                 let mut reg = 0;
-                reg |= self.bg_palette.id_0 << 0;
+                reg |= self.bg_palette.id_0;
                 reg |= self.bg_palette.id_1 << 2;
                 reg |= self.bg_palette.id_2 << 4;
                 reg |= self.bg_palette.id_3 << 6;
@@ -318,7 +315,7 @@ impl Ppu {
             }
             0xff48 => {
                 let mut reg = 0;
-                reg |= self.obj_palette_0.id_0 << 0;
+                reg |= self.obj_palette_0.id_0;
                 reg |= self.obj_palette_0.id_1 << 2;
                 reg |= self.obj_palette_0.id_2 << 4;
                 reg |= self.obj_palette_0.id_3 << 6;
@@ -326,7 +323,7 @@ impl Ppu {
             }
             0xff49 => {
                 let mut reg = 0;
-                reg |= self.obj_palette_1.id_0 << 0;
+                reg |= self.obj_palette_1.id_0;
                 reg |= self.obj_palette_1.id_1 << 2;
                 reg |= self.obj_palette_1.id_2 << 4;
                 reg |= self.obj_palette_1.id_3 << 6;
@@ -528,7 +525,7 @@ impl Ppu {
     fn render_objects(&mut self) {
         puffin::profile_function!();
         // all objects that are visible on the current scanline
-        let mut draw = self
+        let draw = self
             .oam
             .chunks_exact(4)
             .filter(|obj| {
@@ -582,7 +579,7 @@ impl Ppu {
             for x in 0..32 {
                 print!("{:02X} ", self.tile_map_0[y * 32 + x]);
             }
-            print!("\n");
+            println!();
         }
     }
 }

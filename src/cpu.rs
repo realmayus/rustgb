@@ -8,16 +8,12 @@ use crate::isa::{
     ArithmeticInstruction, BitInstruction, Condition, Instruction, JumpInstruction,
     LoadInstruction, MiscInstruction, StackInstruction,
 };
-use crate::memory::{Interrupt, MappedMemory, Mbc, Memory, RegisterPairValue};
-use crate::ppu::Ppu;
-use crate::timer::Timer;
+use crate::memory::{Interrupt, Mbc, Memory, RegisterPairValue};
 use crate::ControlMsg;
-use crate::FrameData;
 use crate::Register;
 use crate::{Flags, RegisterPair, RegisterPairMem, RegisterPairStk};
-use eframe::egui::debug_text::print;
 use log::{debug, info};
-use std::sync::mpsc::{Receiver, Sender};
+use std::sync::mpsc::Receiver;
 use std::time::Instant;
 
 pub struct Cpu<M: Memory> {

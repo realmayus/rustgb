@@ -3,9 +3,7 @@ use crate::ppu::Ppu;
 use crate::serial::Serial;
 use crate::timer::Timer;
 use crate::{ControlMsg, Flags};
-use bitflags::bitflags;
-use log::{debug, info, warn};
-use std::sync::mpsc::Sender;
+use log::warn;
 
 #[derive(Default, Copy, Clone, Debug)]
 pub struct RegisterPairValue {
@@ -382,6 +380,12 @@ pub struct LinearMemory<const SIZE: usize> {
     mem: [u8; SIZE],
     int_enable: u8,
     int_request: u8,
+}
+
+impl<const SIZE: usize> Default for LinearMemory<SIZE> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<const SIZE: usize> LinearMemory<SIZE> {

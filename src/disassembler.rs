@@ -2,12 +2,18 @@ use crate::isa::{
     ArithmeticInstruction, BitInstruction, Condition, Instruction, JumpInstruction,
     LoadInstruction, MiscInstruction, StackInstruction,
 };
-use crate::memory::{MappedMemory, Mbc, Memory};
+use crate::memory::Memory;
 use crate::{Register, RegisterPair, RegisterPairMem, RegisterPairStk};
 use log::debug;
 
 pub struct Disassembler {
     cursor: usize,
+}
+
+impl Default for Disassembler {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Disassembler {

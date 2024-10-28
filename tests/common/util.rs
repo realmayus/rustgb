@@ -53,9 +53,9 @@ pub fn disassemble_byte(byte: u8) -> Instruction {
         (0, 0, 1, 1, 0, 1, 1, 1) => Instruction::Misc(MiscInstruction::Scf),
         (0, 0, 1, 1, 1, 1, 1, 1) => Instruction::Misc(MiscInstruction::Ccf),
 
-        (0, 0, 0, 1, 1, 0, 0, 0) => Instruction::Jump(JumpInstruction::JrN8(0 as i8)),
+        (0, 0, 0, 1, 1, 0, 0, 0) => Instruction::Jump(JumpInstruction::JrN8(0_i8)),
         (0, 0, 1, a, b, 0, 0, 0) => {
-            Instruction::Jump(JumpInstruction::JrCCN8(Condition::from_bits(a, b), 0 as i8))
+            Instruction::Jump(JumpInstruction::JrCCN8(Condition::from_bits(a, b), 0_i8))
         }
 
         (0, 0, 0, 1, 0, 0, 0, 0) => Instruction::Misc(MiscInstruction::Stop),
@@ -154,8 +154,8 @@ pub fn disassemble_byte(byte: u8) -> Instruction {
         (1, 1, 1, 1, 0, 0, 0, 0) => Instruction::Load(LoadInstruction::LdhAMemN8(0)),
         (1, 1, 1, 1, 1, 0, 1, 0) => Instruction::Load(LoadInstruction::LdAMemN16(0)),
 
-        (1, 1, 1, 0, 1, 0, 0, 0) => Instruction::Stack(StackInstruction::AddSPE8(0 as i8)),
-        (1, 1, 1, 1, 1, 0, 0, 0) => Instruction::Stack(StackInstruction::LdHLSPPlusE8(0 as i8)),
+        (1, 1, 1, 0, 1, 0, 0, 0) => Instruction::Stack(StackInstruction::AddSPE8(0_i8)),
+        (1, 1, 1, 1, 1, 0, 0, 0) => Instruction::Stack(StackInstruction::LdHLSPPlusE8(0_i8)),
         (1, 1, 1, 1, 1, 0, 0, 1) => Instruction::Stack(StackInstruction::LdSPHL),
 
         (1, 1, 1, 1, 0, 0, 1, 1) => Instruction::Misc(MiscInstruction::Di),
