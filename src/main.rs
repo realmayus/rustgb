@@ -1,22 +1,21 @@
-
 use bitflags::bitflags;
-use std::{fs, thread};
-use std::collections::HashSet;
-use std::fmt::format;
-use std::sync::{Arc, mpsc, Mutex};
-use std::sync::mpsc::{Receiver, Sender};
-use std::time::Instant;
 use eframe::egui::{Color32, Context, TextureOptions};
-use eframe::{egui, Frame};
 use eframe::epaint::TextureHandle;
+use eframe::{egui, Frame};
 use log::info;
-use rustgb::{CartridgeType, ControlMsg, FrameData};
 use rustgb::cpu::Cpu;
 use rustgb::joypad::JoypadKey;
 use rustgb::memory::{MappedMemory, Mbc, RomOnlyMbc};
 use rustgb::ppu::Ppu;
 use rustgb::timer::Timer;
 use rustgb::ui::FrameHistory;
+use rustgb::{CartridgeType, ControlMsg, FrameData};
+use std::collections::HashSet;
+use std::fmt::format;
+use std::sync::mpsc::{Receiver, Sender};
+use std::sync::{mpsc, Arc, Mutex};
+use std::time::Instant;
+use std::{fs, thread};
 
 struct App {
     frame_history: FrameHistory,
@@ -30,7 +29,12 @@ struct App {
 }
 
 impl App {
-    pub fn new(recv_from_cpu: Receiver<FrameData>, send_to_cpu: Sender<ControlMsg>, framebuffer: Arc<Mutex<Vec<Color32>>>, framebuffer_dirty: Arc<Mutex<bool>>) -> Self {
+    pub fn new(
+        recv_from_cpu: Receiver<FrameData>,
+        send_to_cpu: Sender<ControlMsg>,
+        framebuffer: Arc<Mutex<Vec<Color32>>>,
+        framebuffer_dirty: Arc<Mutex<bool>>,
+    ) -> Self {
         Self {
             frame_history: FrameHistory::default(),
             recv_from_cpu,
@@ -42,7 +46,6 @@ impl App {
             keys: HashSet::new(),
         }
     }
-
 }
 
 impl eframe::App for App {
@@ -52,57 +55,90 @@ impl eframe::App for App {
             let new_keys = keys.difference(&self.keys).collect::<HashSet<_>>();
             let released_keys = self.keys.difference(&keys).collect::<HashSet<_>>();
             if new_keys.contains(&egui::Key::W) {
-                self.send_to_cpu.send(ControlMsg::KeyDown(JoypadKey::Up)).unwrap();
+                self.send_to_cpu
+                    .send(ControlMsg::KeyDown(JoypadKey::Up))
+                    .unwrap();
             }
             if released_keys.contains(&egui::Key::W) {
-                self.send_to_cpu.send(ControlMsg::KeyUp(JoypadKey::Up)).unwrap();
+                self.send_to_cpu
+                    .send(ControlMsg::KeyUp(JoypadKey::Up))
+                    .unwrap();
             }
             if new_keys.contains(&egui::Key::A) {
-                self.send_to_cpu.send(ControlMsg::KeyDown(JoypadKey::Left)).unwrap();
+                self.send_to_cpu
+                    .send(ControlMsg::KeyDown(JoypadKey::Left))
+                    .unwrap();
             }
             if released_keys.contains(&egui::Key::A) {
-                self.send_to_cpu.send(ControlMsg::KeyUp(JoypadKey::Left)).unwrap();
+                self.send_to_cpu
+                    .send(ControlMsg::KeyUp(JoypadKey::Left))
+                    .unwrap();
             }
             if new_keys.contains(&egui::Key::S) {
-                self.send_to_cpu.send(ControlMsg::KeyDown(JoypadKey::Down)).unwrap();
+                self.send_to_cpu
+                    .send(ControlMsg::KeyDown(JoypadKey::Down))
+                    .unwrap();
             }
             if released_keys.contains(&egui::Key::S) {
-                self.send_to_cpu.send(ControlMsg::KeyUp(JoypadKey::Down)).unwrap();
+                self.send_to_cpu
+                    .send(ControlMsg::KeyUp(JoypadKey::Down))
+                    .unwrap();
             }
             if new_keys.contains(&egui::Key::D) {
-                self.send_to_cpu.send(ControlMsg::KeyDown(JoypadKey::Right)).unwrap();
+                self.send_to_cpu
+                    .send(ControlMsg::KeyDown(JoypadKey::Right))
+                    .unwrap();
             }
             if released_keys.contains(&egui::Key::D) {
-                self.send_to_cpu.send(ControlMsg::KeyUp(JoypadKey::Right)).unwrap();
+                self.send_to_cpu
+                    .send(ControlMsg::KeyUp(JoypadKey::Right))
+                    .unwrap();
             }
             if new_keys.contains(&egui::Key::ArrowUp) {
-                self.send_to_cpu.send(ControlMsg::KeyDown(JoypadKey::A)).unwrap();
+                self.send_to_cpu
+                    .send(ControlMsg::KeyDown(JoypadKey::A))
+                    .unwrap();
             }
             if released_keys.contains(&egui::Key::ArrowUp) {
-                self.send_to_cpu.send(ControlMsg::KeyUp(JoypadKey::A)).unwrap();
+                self.send_to_cpu
+                    .send(ControlMsg::KeyUp(JoypadKey::A))
+                    .unwrap();
             }
             if new_keys.contains(&egui::Key::ArrowDown) {
-                self.send_to_cpu.send(ControlMsg::KeyDown(JoypadKey::B)).unwrap();
+                self.send_to_cpu
+                    .send(ControlMsg::KeyDown(JoypadKey::B))
+                    .unwrap();
             }
             if released_keys.contains(&egui::Key::ArrowDown) {
-                self.send_to_cpu.send(ControlMsg::KeyUp(JoypadKey::B)).unwrap();
+                self.send_to_cpu
+                    .send(ControlMsg::KeyUp(JoypadKey::B))
+                    .unwrap();
             }
             if new_keys.contains(&egui::Key::ArrowRight) {
-                self.send_to_cpu.send(ControlMsg::KeyDown(JoypadKey::Start)).unwrap();
+                self.send_to_cpu
+                    .send(ControlMsg::KeyDown(JoypadKey::Start))
+                    .unwrap();
             }
             if released_keys.contains(&egui::Key::ArrowRight) {
-                self.send_to_cpu.send(ControlMsg::KeyUp(JoypadKey::Start)).unwrap();
+                self.send_to_cpu
+                    .send(ControlMsg::KeyUp(JoypadKey::Start))
+                    .unwrap();
             }
             if new_keys.contains(&egui::Key::ArrowLeft) {
-                self.send_to_cpu.send(ControlMsg::KeyDown(JoypadKey::Select)).unwrap();
+                self.send_to_cpu
+                    .send(ControlMsg::KeyDown(JoypadKey::Select))
+                    .unwrap();
             }
             if released_keys.contains(&egui::Key::ArrowLeft) {
-                self.send_to_cpu.send(ControlMsg::KeyUp(JoypadKey::Select)).unwrap();
+                self.send_to_cpu
+                    .send(ControlMsg::KeyUp(JoypadKey::Select))
+                    .unwrap();
             }
             self.keys = keys.clone();
         });
         if *self.framebuffer_dirty.lock().unwrap() {
-            self.frame_history.on_new_frame(ctx.input(|i| i.time), frame.info().cpu_usage);
+            self.frame_history
+                .on_new_frame(ctx.input(|i| i.time), frame.info().cpu_usage);
             let img = egui::ColorImage {
                 size: [160, 144],
                 pixels: self.framebuffer.lock().unwrap().clone(),
@@ -125,14 +161,14 @@ impl eframe::App for App {
             let initial_show_vram = self.show_vram;
             ui.checkbox(&mut self.show_vram, "Show VRAM");
             if self.show_vram != initial_show_vram {
-                self.send_to_cpu.send(ControlMsg::ShowVRam(self.show_vram)).unwrap();
+                self.send_to_cpu
+                    .send(ControlMsg::ShowVRam(self.show_vram))
+                    .unwrap();
             }
         });
         ctx.request_repaint();
     }
 }
-
-
 
 pub fn main() {
     env_logger::Builder::new()
@@ -144,13 +180,12 @@ pub fn main() {
         // .filter(Some("rustgb::ppu"), log::LevelFilter::Info)
         .init();
 
-
     let server_addr = "127.0.0.1:8585";
     let _server = puffin_http::Server::new(&server_addr).unwrap();
-    
+
     // let boot_rom = fs::read("boot.gb").expect("Unable to read boot rom");
     // let boot_rom = fs::read("gb-test-roms-master/cpu_instrs/individual/04-op r,imm.gb").expect("Unable to read boot rom");
-    
+
     let rom = fs::read("roms/tetris.gb").expect("Unable to read rom");
     // let rom = fs::read("gb-test-roms-master/cpu_instrs/individual/01-special.gb").expect("Unable to read rom");
 
@@ -163,13 +198,11 @@ pub fn main() {
     let mbc = rom[0x147];
     let type_ = CartridgeType::from(mbc);
     let mbc = match type_ {
-        CartridgeType::RomOnly => {
-            RomOnlyMbc::new(rom)
-        }
+        CartridgeType::RomOnly => RomOnlyMbc::new(rom),
         _ => panic!("Unsupported cartridge type {type_:?}"),
     };
     info!("Memory Bank Controller: {type_:?}");
-    
+
     let (send_from_cpu, recv_from_cpu) = mpsc::channel::<FrameData>();
     let (send_to_cpu, recv_to_cpu) = mpsc::channel::<ControlMsg>();
     let framebuffer = Arc::new(Mutex::new(vec![Color32::BLACK; 160 * 144]));
@@ -179,8 +212,13 @@ pub fn main() {
     let mmu = MappedMemory::new(mbc, ppu, timer);
     let mut cpu = Cpu::new(mmu, recv_to_cpu);
     let cpu_handle = thread::spawn(move || cpu.run());
-    
-    let app = App::new(recv_from_cpu, send_to_cpu.clone(), framebuffer.clone(), framebuffer_dirty.clone());
+
+    let app = App::new(
+        recv_from_cpu,
+        send_to_cpu.clone(),
+        framebuffer.clone(),
+        framebuffer_dirty.clone(),
+    );
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_inner_size([512.0, 512.0]),
         vsync: true,
@@ -193,7 +231,8 @@ pub fn main() {
             egui_extras::install_image_loaders(&cc.egui_ctx);
             Ok(Box::new(app))
         }),
-    ).unwrap();
+    )
+    .unwrap();
     send_to_cpu.send(ControlMsg::Terminate).unwrap();
     cpu_handle.join().unwrap();
 }

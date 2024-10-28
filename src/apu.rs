@@ -1,13 +1,9 @@
 use crate::memory::MappedMemory;
 
-struct Apu {
-    
-}
+struct Apu {}
 
 impl Apu {
     pub fn new() -> Self {
-        Self {
-            
-        }
+        Self {}
     }
 }

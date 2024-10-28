@@ -1,18 +1,17 @@
 use bitflags::bitflags;
 use eframe::egui::Color32;
 
+mod apu;
+mod arithmetic;
 pub mod cpu;
 pub mod disassembler;
 pub mod isa;
-mod arithmetic;
+pub mod joypad;
 pub mod memory;
 pub mod ppu;
-pub mod timer;
-mod apu;
-pub mod ui;
 mod serial;
-pub mod joypad;
-
+pub mod timer;
+pub mod ui;
 
 bitflags! {
     struct Flags: u8 {
@@ -178,7 +177,6 @@ impl From<u8> for CartridgeType {
         }
     }
 }
-
 
 pub struct FrameData {
     pub framebuffer: Vec<Color32>,

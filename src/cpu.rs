@@ -1,17 +1,24 @@
-use crate::{Flags, RegisterPair, RegisterPairMem, RegisterPairStk};
-use crate::FrameData;
+use crate::arithmetic::{
+    op_adc, op_add, op_add16, op_and, op_bit, op_cp, op_dec, op_dec16, op_inc, op_inc16, op_or,
+    op_res, op_rl, op_rlc, op_rr, op_rrc, op_sbc, op_set, op_sla, op_sra, op_srl, op_sub, op_swap,
+    op_xor,
+};
+use crate::disassembler::Disassembler;
+use crate::isa::{
+    ArithmeticInstruction, BitInstruction, Condition, Instruction, JumpInstruction,
+    LoadInstruction, MiscInstruction, StackInstruction,
+};
+use crate::memory::{Interrupt, MappedMemory, Mbc, Memory, RegisterPairValue};
+use crate::ppu::Ppu;
+use crate::timer::Timer;
 use crate::ControlMsg;
-use std::sync::mpsc::{Receiver, Sender};
-use std::time::Instant;
+use crate::FrameData;
+use crate::Register;
+use crate::{Flags, RegisterPair, RegisterPairMem, RegisterPairStk};
 use eframe::egui::debug_text::print;
 use log::{debug, info};
-use crate::disassembler::Disassembler;
-use crate::arithmetic::{op_adc, op_add, op_add16, op_and, op_bit, op_cp, op_dec, op_dec16, op_inc, op_inc16, op_or, op_res, op_rl, op_rlc, op_rr, op_rrc, op_sbc, op_set, op_sla, op_sra, op_srl, op_sub, op_swap, op_xor};
-use crate::isa::{ArithmeticInstruction, BitInstruction, Condition, Instruction, JumpInstruction, LoadInstruction, MiscInstruction, StackInstruction};
-use crate::memory::{Interrupt, Mbc, MappedMemory, RegisterPairValue, Memory};
-use crate::ppu::Ppu;
-use crate::Register;
-use crate::timer::Timer;
+use std::sync::mpsc::{Receiver, Sender};
+use std::time::Instant;
 
 pub struct Cpu<M: Memory> {
     af: RegisterPairValue,
@@ -22,7 +29,7 @@ pub struct Cpu<M: Memory> {
     pub pc: RegisterPairValue,
     pub mem: M,
     disassembler: Disassembler,
-    pub ime: bool,  // interrupt master enable
+    pub ime: bool, // interrupt master enable
     stall: usize,
     pub(crate) last_cycle: Instant,
     pub recv: Receiver<ControlMsg>,
@@ -32,7 +39,10 @@ pub struct Cpu<M: Memory> {
     ei_ctr: u8, // delay ei instruction
 }
 
-impl<M> Cpu<M> where M: Memory {
+impl<M> Cpu<M>
+where
+    M: Memory,
+{
     pub fn new(mem: M, recv: Receiver<ControlMsg>) -> Self {
         Self {
             af: RegisterPairValue::from(0x0100 | Flags::ZERO.bits() as u16),
@@ -91,16 +101,16 @@ impl<M> Cpu<M> where M: Memory {
         match reg_pair_id {
             RegisterPairMem::BC => self.bc.as_u16(),
             RegisterPairMem::DE => self.de.as_u16(),
-            RegisterPairMem::HLI => { 
+            RegisterPairMem::HLI => {
                 let res = self.hl.as_u16();
                 self.hl = RegisterPairValue::from(res.wrapping_add(1));
                 res
-            },
+            }
             RegisterPairMem::HLD => {
                 let res = self.hl.as_u16();
                 self.hl = RegisterPairValue::from(res.wrapping_sub(1));
                 res
-            },
+            }
         }
     }
 
@@ -121,8 +131,11 @@ impl<M> Cpu<M> where M: Memory {
             RegisterPair::SP => &mut self.sp,
         }
     }
-    
-    pub fn register_pair_stk_mut(&mut self, reg_pair_id: RegisterPairStk) -> &mut RegisterPairValue {
+
+    pub fn register_pair_stk_mut(
+        &mut self,
+        reg_pair_id: RegisterPairStk,
+    ) -> &mut RegisterPairValue {
         match reg_pair_id {
             RegisterPairStk::BC => &mut self.bc,
             RegisterPairStk::DE => &mut self.de,
@@ -130,16 +143,14 @@ impl<M> Cpu<M> where M: Memory {
             RegisterPairStk::AF => &mut self.af,
         }
     }
-    
+
     pub fn run(&mut self) {
         let frame_time = 16.74 / 1000.0; // s
         let cycles_per_frame = 70224 / 4;
         while !self.terminate {
             puffin::profile_scope!("Cpu::cycle");
             puffin::GlobalProfiler::lock().new_frame();
-            
-            
-           
+
             let before_frame = Instant::now();
             for _ in 0..cycles_per_frame {
                 if let Ok(msg) = self.recv.try_recv() {
@@ -148,14 +159,14 @@ impl<M> Cpu<M> where M: Memory {
                 self.cycle();
             }
             let elapsed = before_frame.elapsed().as_secs_f64() * 1000.0;
-            
+
             if elapsed < frame_time {
                 // print!("delaying next cycle by {} ms", (cycle_time - elapsed) * 1000.0);
                 std::thread::sleep(std::time::Duration::from_secs_f64(frame_time - elapsed));
             }
         }
     }
-    
+
     pub fn cycle(&mut self) {
         puffin::profile_function!();
         self.last_cycle = Instant::now();
@@ -167,7 +178,7 @@ impl<M> Cpu<M> where M: Memory {
         }
         self.di_ctr = self.di_ctr.saturating_sub(1);
         self.ei_ctr = self.ei_ctr.saturating_sub(1);
-        
+
         if self.stall > 0 {
             self.stall -= 1;
         } else if !self.halted {
@@ -184,10 +195,9 @@ impl<M> Cpu<M> where M: Memory {
         }
         self.handle_interrupt();
 
-        
         self.mem.cycle();
     }
-    
+
     fn handle_interrupt(&mut self) {
         if !self.ime && !self.halted {
             return;
@@ -212,25 +222,37 @@ impl<M> Cpu<M> where M: Memory {
                 self.pc = RegisterPairValue::from(0x0040);
             }
             Interrupt::LcdStat => {
-                debug!("Requested interrupts: {:#08b}, enabled: {:#08b}", requested, enabled);
+                debug!(
+                    "Requested interrupts: {:#08b}, enabled: {:#08b}",
+                    requested, enabled
+                );
                 debug!("Handling LCD Stat interrupt");
                 self.mem.clear_requested_interrupt(Interrupt::LcdStat);
                 self.pc = RegisterPairValue::from(0x0048);
             }
             Interrupt::Timer => {
-                debug!("Requested interrupts: {:#08b}, enabled: {:#08b}", requested, enabled);
+                debug!(
+                    "Requested interrupts: {:#08b}, enabled: {:#08b}",
+                    requested, enabled
+                );
                 debug!("Handling Timer interrupt");
                 self.mem.clear_requested_interrupt(Interrupt::Timer);
                 self.pc = RegisterPairValue::from(0x0050);
             }
             Interrupt::Serial => {
-                debug!("Requested interrupts: {:#08b}, enabled: {:#08b}", requested, enabled);
+                debug!(
+                    "Requested interrupts: {:#08b}, enabled: {:#08b}",
+                    requested, enabled
+                );
                 debug!("Handling Serial interrupt");
                 self.mem.clear_requested_interrupt(Interrupt::Serial);
                 self.pc = RegisterPairValue::from(0x0058);
             }
             Interrupt::Joypad => {
-                debug!("Requested interrupts: {:#08b}, enabled: {:#08b}", requested, enabled);
+                debug!(
+                    "Requested interrupts: {:#08b}, enabled: {:#08b}",
+                    requested, enabled
+                );
                 debug!("Handling Joypad interrupt");
                 self.mem.clear_requested_interrupt(Interrupt::Joypad);
                 self.pc = RegisterPairValue::from(0x0060);
@@ -449,7 +471,8 @@ impl<M> Cpu<M> where M: Memory {
             }
             BitInstruction::SwapMemHL => {
                 let prev = self.mem.get(self.hl.as_u16());
-                self.mem.update(self.hl.as_u16(), || op_swap(prev, &mut flags));
+                self.mem
+                    .update(self.hl.as_u16(), || op_swap(prev, &mut flags));
                 self.stall = 3;
             }
             BitInstruction::Rl(reg) => {
@@ -457,22 +480,26 @@ impl<M> Cpu<M> where M: Memory {
             }
             BitInstruction::RlMemHL => {
                 let prev = self.mem.get(self.hl.as_u16());
-                self.mem.update(self.hl.as_u16(), || op_rl(prev, &mut flags, false));
+                self.mem
+                    .update(self.hl.as_u16(), || op_rl(prev, &mut flags, false));
                 self.stall = 3;
             }
             BitInstruction::Rla => {
-                *self.register_mut(Register::A) = op_rl(self.register(Register::A), &mut flags, true);
+                *self.register_mut(Register::A) =
+                    op_rl(self.register(Register::A), &mut flags, true);
             }
             BitInstruction::Rlc(reg) => {
                 *self.register_mut(reg) = op_rlc(self.register(reg), &mut flags, false);
             }
             BitInstruction::RlcMemHL => {
                 let prev = self.mem.get(self.hl.as_u16());
-                self.mem.update(self.hl.as_u16(), || op_rlc(prev, &mut flags, false));
+                self.mem
+                    .update(self.hl.as_u16(), || op_rlc(prev, &mut flags, false));
                 self.stall = 3;
             }
             BitInstruction::Rlca => {
-                *self.register_mut(Register::A) = op_rlc(self.register(Register::A), &mut flags, true);
+                *self.register_mut(Register::A) =
+                    op_rlc(self.register(Register::A), &mut flags, true);
             }
             BitInstruction::Rr(reg) => {
                 *self.register_mut(reg) = op_rr(self.register(reg), &mut flags);
@@ -480,7 +507,8 @@ impl<M> Cpu<M> where M: Memory {
             BitInstruction::RrMemHL => {
                 println!("Working with value {:#04X}", self.mem.get(self.hl.as_u16()));
                 let prev = self.mem.get(self.hl.as_u16());
-                self.mem.update(self.hl.as_u16(), || op_rr(prev, &mut flags));
+                self.mem
+                    .update(self.hl.as_u16(), || op_rr(prev, &mut flags));
                 self.stall = 3;
             }
             BitInstruction::Rra => {
@@ -491,18 +519,21 @@ impl<M> Cpu<M> where M: Memory {
             }
             BitInstruction::RrcMemHL => {
                 let prev = self.mem.get(self.hl.as_u16());
-                self.mem.update(self.hl.as_u16(), || op_rrc(prev, &mut flags, false));
+                self.mem
+                    .update(self.hl.as_u16(), || op_rrc(prev, &mut flags, false));
                 self.stall = 3;
             }
             BitInstruction::Rrca => {
-                *self.register_mut(Register::A) = op_rrc(self.register(Register::A), &mut flags, true);
+                *self.register_mut(Register::A) =
+                    op_rrc(self.register(Register::A), &mut flags, true);
             }
             BitInstruction::Sla(reg) => {
                 *self.register_mut(reg) = op_sla(self.register(reg), &mut flags);
             }
             BitInstruction::SlaMemHL => {
                 let prev = self.mem.get(self.hl.as_u16());
-                self.mem.update(self.hl.as_u16(), || op_sla(prev, &mut flags));
+                self.mem
+                    .update(self.hl.as_u16(), || op_sla(prev, &mut flags));
                 self.stall = 3;
             }
             BitInstruction::Sra(reg) => {
@@ -510,7 +541,8 @@ impl<M> Cpu<M> where M: Memory {
             }
             BitInstruction::SraMemHL => {
                 let prev = self.mem.get(self.hl.as_u16());
-                self.mem.update(self.hl.as_u16(), || op_sra(prev, &mut flags));
+                self.mem
+                    .update(self.hl.as_u16(), || op_sra(prev, &mut flags));
                 self.stall = 3;
             }
             BitInstruction::Srl(reg) => {
@@ -518,7 +550,8 @@ impl<M> Cpu<M> where M: Memory {
             }
             BitInstruction::SrlMemHL => {
                 let prev = self.mem.get(self.hl.as_u16());
-                self.mem.update(self.hl.as_u16(), || op_srl(prev, &mut flags));
+                self.mem
+                    .update(self.hl.as_u16(), || op_srl(prev, &mut flags));
                 self.stall = 3;
             }
         }
@@ -565,7 +598,8 @@ impl<M> Cpu<M> where M: Memory {
                 self.stall = 2;
             }
             LoadInstruction::LdhMemCA => {
-                self.mem.update(0xFF00 + self.bc.low() as u16, || self.af.high());
+                self.mem
+                    .update(0xFF00 + self.bc.low() as u16, || self.af.high());
                 self.stall = 1;
             }
             LoadInstruction::LdAMemR16(reg) => {
@@ -582,7 +616,8 @@ impl<M> Cpu<M> where M: Memory {
                 self.stall = 1;
             }
             LoadInstruction::LdhAMemC => {
-                self.af.set_high(self.mem.get(0xFF00 + self.bc.low() as u16));
+                self.af
+                    .set_high(self.mem.get(0xFF00 + self.bc.low() as u16));
                 self.stall = 1;
             }
             LoadInstruction::LdMemHLIA => {
@@ -617,7 +652,7 @@ impl<M> Cpu<M> where M: Memory {
         }
     }
 
-    fn eval_cond(&self, condition: Condition) -> bool{
+    fn eval_cond(&self, condition: Condition) -> bool {
         match condition {
             Condition::NotZero => !self.af.flags().contains(Flags::ZERO),
             Condition::Zero => self.af.flags().contains(Flags::ZERO),
@@ -629,7 +664,8 @@ impl<M> Cpu<M> where M: Memory {
     fn push(&mut self, value: u16) {
         self.sp = RegisterPairValue::from(self.sp.as_u16().wrapping_sub(2));
         self.mem.write(self.sp.as_u16(), value as u8);
-        self.mem.write(self.sp.as_u16().wrapping_add(1), (value >> 8) as u8);
+        self.mem
+            .write(self.sp.as_u16().wrapping_add(1), (value >> 8) as u8);
     }
 
     fn pop(&mut self) -> u16 {
@@ -711,15 +747,25 @@ impl<M> Cpu<M> where M: Memory {
         match instruction {
             StackInstruction::AddHLSP => {
                 let mut flags = self.af.flags();
-                self.hl = RegisterPairValue::from(op_add16(self.hl.as_u16(), self.sp.as_u16(), &mut flags));
+                self.hl = RegisterPairValue::from(op_add16(
+                    self.hl.as_u16(),
+                    self.sp.as_u16(),
+                    &mut flags,
+                ));
                 self.af.set_low(flags.bits());
                 self.stall = 1;
             }
             StackInstruction::AddSPE8(imm) => {
                 let imm = imm as i16 as u16;
                 let mut flags = Flags::empty();
-                flags.set(Flags::HALF_CARRY, (self.sp.as_u16() & 0x000F) + (imm & 0x000F) > 0x000F);
-                flags.set(Flags::CARRY, (self.sp.as_u16() & 0x00FF) + (imm & 0x00FF) > 0x00FF);
+                flags.set(
+                    Flags::HALF_CARRY,
+                    (self.sp.as_u16() & 0x000F) + (imm & 0x000F) > 0x000F,
+                );
+                flags.set(
+                    Flags::CARRY,
+                    (self.sp.as_u16() & 0x00FF) + (imm & 0x00FF) > 0x00FF,
+                );
                 self.af.set_low(flags.bits());
                 self.sp = RegisterPairValue::from(self.sp.as_u16().wrapping_add(imm));
                 self.stall = 3;
@@ -748,8 +794,14 @@ impl<M> Cpu<M> where M: Memory {
                 let mut flags = Flags::empty();
                 flags.set(Flags::ZERO, false);
                 flags.set(Flags::SUBTRACT, false);
-                flags.set(Flags::HALF_CARRY, (self.sp.low() & 0xF) + (imm as u8 & 0xF) > 0xF);
-                flags.set(Flags::CARRY, (self.sp.low() as u16) + ((imm as u8) as u16) > 0x00FF);
+                flags.set(
+                    Flags::HALF_CARRY,
+                    (self.sp.low() & 0xF) + (imm as u8 & 0xF) > 0xF,
+                );
+                flags.set(
+                    Flags::CARRY,
+                    (self.sp.low() as u16) + ((imm as u8) as u16) > 0x00FF,
+                );
                 self.af.set_low(flags.bits());
             }
             StackInstruction::LdSPHL => {
@@ -761,7 +813,10 @@ impl<M> Cpu<M> where M: Memory {
                 let mut flags = Flags::empty();
                 flags.set(Flags::ZERO, self.af.low() & Flags::ZERO.bits() != 0);
                 flags.set(Flags::SUBTRACT, self.af.low() & Flags::SUBTRACT.bits() != 0);
-                flags.set(Flags::HALF_CARRY, self.af.low() & Flags::HALF_CARRY.bits() != 0);
+                flags.set(
+                    Flags::HALF_CARRY,
+                    self.af.low() & Flags::HALF_CARRY.bits() != 0,
+                );
                 flags.set(Flags::CARRY, self.af.low() & Flags::CARRY.bits() != 0);
                 self.af.set_low(flags.bits());
                 self.stall = 2;
@@ -770,7 +825,8 @@ impl<M> Cpu<M> where M: Memory {
                 *self.register_pair_stk_mut(reg) = RegisterPairValue::from(self.pop());
                 self.stall = 2;
             }
-            StackInstruction::PushAF => { // todo: why is this variant required?
+            StackInstruction::PushAF => {
+                // todo: why is this variant required?
                 self.push(self.af.as_u16());
                 self.stall = 3;
             }
@@ -814,7 +870,11 @@ impl<M> Cpu<M> where M: Memory {
             MiscInstruction::DaA => {
                 let mut flags = self.af.flags();
                 let mut a = self.af.high();
-                let mut correction = if self.af.flags().contains(Flags::CARRY) { 0x60 } else { 0x00 };
+                let mut correction = if self.af.flags().contains(Flags::CARRY) {
+                    0x60
+                } else {
+                    0x00
+                };
                 if self.af.flags().contains(Flags::HALF_CARRY) {
                     correction |= 0x06;
                 }
@@ -861,7 +921,7 @@ impl<M> Cpu<M> where M: Memory {
             }
         }
     }
-    
+
     pub fn control_message(&mut self, msg: ControlMsg) {
         match msg {
             ControlMsg::Terminate => self.terminate = true,

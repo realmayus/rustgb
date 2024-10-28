@@ -164,13 +164,13 @@ pub enum LoadInstruction {
     LdMemHLN8(u8),              // Store immediate value into memory pointed to by register HL.
     LdR8MemHL(Register),        // Load value in memory pointed to by register HL into register.
     LdMemR16A(RegisterPairMem), // Store value in register A into memory pointed to by register pair.
-    LdMemN16A(u16),          // Store value in register A into memory pointed to by immediate value.
+    LdMemN16A(u16), // Store value in register A into memory pointed to by immediate value.
     LdhMemN16A(u16), // Store value in register A into memory pointed to by immediate value, high.
-    LdhMemCA,        // Store value in register A into memory pointed to by register C, high.
+    LdhMemCA,       // Store value in register A into memory pointed to by register C, high.
     LdAMemR16(RegisterPairMem), // Load value in memory pointed to by register pair into register A.
-    LdAMemN16(u16),  // Load value in memory pointed to by immediate value into register A.
+    LdAMemN16(u16), // Load value in memory pointed to by immediate value into register A.
     LdhAMemN16(u16), // Load value in memory pointed to by immediate value, high into register A.
-    LdhAMemC,        // Load value in memory pointed to by register C, high into register A.
+    LdhAMemC,       // Load value in memory pointed to by register C, high into register A.
     LdMemHLIA, // Store value in register A into memory pointed to by register HL, then increment HL.
     LdMemHLDA, // Store value in register A into memory pointed to by register HL, then decrement HL.
     LdAMemHLI, // Load value in memory pointed to by register HL into register A, then increment HL.
@@ -224,7 +224,7 @@ pub enum JumpInstruction {
     RetCC(Condition),          // Return from subroutine if condition is met.
     Ret,                       // Return from subroutine.
     Reti,                      // Return from subroutine and enable interrupts.
-    Rst(u16),                   // Call subroutine at vector.
+    Rst(u16),                  // Call subroutine at vector.
 }
 
 // same as derived Debug impl but print u16, u8, i8 as hex
@@ -264,17 +264,17 @@ PUSH r16
 
 #[derive(Debug)]
 pub enum StackInstruction {
-    AddHLSP,               // Add SP to HL.  TODO: why are there unused variants?
-    AddSPE8(i8),           // Add immediate value to SP.
-    DecSP,                 // Decrement SP.
-    IncSP,                 // Increment SP.
-    LdSPN16(u16),          // Load immediate value into SP.
-    LdMemN16SP(u16),       // Store SP & $FF at address n16 and SP >> 8 at address n16 + 1.
-    LdHLSPPlusE8(i8),      // Load SP plus immediate value into HL.
-    LdSPHL,                // Load HL into SP.
-    PopAF,                 // Pop value from stack into AF.
+    AddHLSP,                  // Add SP to HL.  TODO: why are there unused variants?
+    AddSPE8(i8),              // Add immediate value to SP.
+    DecSP,                    // Decrement SP.
+    IncSP,                    // Increment SP.
+    LdSPN16(u16),             // Load immediate value into SP.
+    LdMemN16SP(u16),          // Store SP & $FF at address n16 and SP >> 8 at address n16 + 1.
+    LdHLSPPlusE8(i8),         // Load SP plus immediate value into HL.
+    LdSPHL,                   // Load HL into SP.
+    PopAF,                    // Pop value from stack into AF.
     PopR16(RegisterPairStk),  // Pop value from stack into register pair.
-    PushAF,                // Push value in AF onto stack.
+    PushAF,                   // Push value in AF onto stack.
     PushR16(RegisterPairStk), // Push value in register pair onto stack.
 }
 
@@ -313,5 +313,3 @@ pub enum Instruction {
     Stack(StackInstruction),
     Misc(MiscInstruction),
 }
-
-

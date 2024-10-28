@@ -1,5 +1,3 @@
-
-
 #[derive(Default)]
 pub struct Serial {
     data: u8,
@@ -7,7 +5,6 @@ pub struct Serial {
 }
 
 impl Serial {
-
     pub fn write(&mut self, addr: u16, value: u8) {
         match addr {
             0xFF01 => self.data = value,
@@ -15,7 +12,7 @@ impl Serial {
             _ => panic!("Invalid serial address: 0x{:X}", addr),
         }
     }
-    
+
     pub fn read(&self, addr: u16) -> u8 {
         match addr {
             0xFF01 => self.data,

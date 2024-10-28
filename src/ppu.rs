@@ -1,15 +1,14 @@
-
 // pixel processing unit
 
+use crate::memory::{Interrupt, MappedMemory, Mbc};
+use crate::FrameData;
+use bitflags::bitflags;
+use eframe::egui::debug_text::print;
+use eframe::egui::Color32;
+use log::{debug, error, info};
 use std::cmp::PartialEq;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
-use bitflags::bitflags;
-use eframe::egui::Color32;
-use eframe::egui::debug_text::print;
-use log::{debug, error, info};
-use crate::FrameData;
-use crate::memory::{Interrupt, Mbc, MappedMemory};
 
 bitflags! {
     pub struct LcdStat: u8 {
@@ -33,7 +32,7 @@ macro_rules! set_pixel {
     };
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq,)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 enum PpuMode {
     OamScan = 2,
     DrawingPixels = 3,
@@ -103,7 +102,7 @@ pub struct Ppu {
     obj_palette_0: Palette,
     obj_palette_1: Palette,
 
-    window_x: u8,  // window x position plus 7
+    window_x: u8, // window x position plus 7
     window_y: u8,
     tiles: [Tile; 3 * 128],
     tile_map_0: [u8; 0x400],
@@ -119,23 +118,26 @@ pub struct Ppu {
 // makes it easier to work with tiles, directly converts weird 16 byte format to 8x8 pixel format
 struct Tile {
     raw: [u8; 16],
-    pixels: [u8; 8*8],
+    pixels: [u8; 8 * 8],
 }
 
 impl Tile {
     fn from_raw(raw: [u8; 16]) -> Self {
-        Self { raw, pixels: Self::convert_to_pixels(raw)}
+        Self {
+            raw,
+            pixels: Self::convert_to_pixels(raw),
+        }
     }
-    
+
     fn set_byte(&mut self, index: usize, value: u8) {
         // println!("Setting byte {} to {}", index, value);
         assert!(index < 16, "Tile index out of bounds");
         self.raw[index] = value;
         self.pixels = Self::convert_to_pixels(self.raw);
     }
-    
-    fn convert_to_pixels(raw: [u8; 16]) -> [u8; 8*8] {
-        let mut data = [0; 8*8];
+
+    fn convert_to_pixels(raw: [u8; 16]) -> [u8; 8 * 8] {
+        let mut data = [0; 8 * 8];
         let mut pixel = 0;
         for line in raw.chunks(2) {
             let [lsb, msb] = line else { unreachable!() };
@@ -152,7 +154,10 @@ impl Tile {
 }
 
 impl Ppu {
-    pub fn new(displaybuffer: Arc<Mutex<Vec<Color32>>>, displaybuffer_dirty: Arc<Mutex<bool>>) -> Self {
+    pub fn new(
+        displaybuffer: Arc<Mutex<Vec<Color32>>>,
+        displaybuffer_dirty: Arc<Mutex<bool>>,
+    ) -> Self {
         Self {
             show_vram: false,
             mode: PpuMode::HBlank,
@@ -196,7 +201,8 @@ impl Ppu {
     pub fn cycle(&mut self) {
         puffin::profile_function!();
         self.mode_counter += 1;
-        if self.mode_counter >= 114 {  // time it takes to render a scanline
+        if self.mode_counter >= 114 {
+            // time it takes to render a scanline
             self.mode_counter -= 114;
             self.line = (self.line + 1) % 154;
             if self.lyc_int && self.line == self.lyc {
@@ -229,7 +235,11 @@ impl Ppu {
         self.hblank = false;
         match mode {
             PpuMode::OamScan => {
-                if self.mode_2_int { u8::from(Interrupt::LcdStat) } else { 0 }
+                if self.mode_2_int {
+                    u8::from(Interrupt::LcdStat)
+                } else {
+                    0
+                }
             }
             PpuMode::DrawingPixels => {
                 if self.win_enable && !self.win_y_trigger && self.line == self.window_y {
@@ -241,24 +251,34 @@ impl Ppu {
             PpuMode::HBlank => {
                 self.render_scanline();
                 self.hblank = true;
-                if self.mode_0_int { u8::from(Interrupt::LcdStat) } else { 0 }
+                if self.mode_0_int {
+                    u8::from(Interrupt::LcdStat)
+                } else {
+                    0
+                }
             }
             PpuMode::VBlank => {
                 self.post_frame();
                 self.win_y_trigger = false;
                 self.vblank = true;
-                if self.mode_1_int { u8::from(Interrupt::LcdStat) | u8::from(Interrupt::VBlank) } else { u8::from(Interrupt::VBlank) }
+                if self.mode_1_int {
+                    u8::from(Interrupt::LcdStat) | u8::from(Interrupt::VBlank)
+                } else {
+                    u8::from(Interrupt::VBlank)
+                }
             }
         }
     }
-    
+
     fn post_frame(&mut self) {
         puffin::profile_function!();
-        *self.displaybuffer.lock().unwrap() = self.framebuffer.chunks_exact(4)
-            .map(|pixel| Color32::from_rgba_unmultiplied(pixel[0], pixel[1], pixel[2], pixel[3])).collect::<Vec<_>>();
+        *self.displaybuffer.lock().unwrap() = self
+            .framebuffer
+            .chunks_exact(4)
+            .map(|pixel| Color32::from_rgba_unmultiplied(pixel[0], pixel[1], pixel[2], pixel[3]))
+            .collect::<Vec<_>>();
         *self.displaybuffer_dirty.lock().unwrap() = true;
     }
-
 
     pub fn read(&self, addr: u16) -> u8 {
         match addr {
@@ -343,7 +363,7 @@ impl Ppu {
                     self.mode_counter = 0;
                     self.clear_framebuffer(0);
                 }
-                if toggled_lcd_on { 
+                if toggled_lcd_on {
                     info!("LCD turned on");
                 }
                 if self.bg_win_enable && !initial_bg_win_enable {
@@ -359,18 +379,14 @@ impl Ppu {
                 self.mode_1_int = value & 0b00010000 != 0;
                 self.mode_0_int = value & 0b00001000 != 0;
             }
-            0xff42 => {
-                self.viewport_y = value
-            },
-            0xff43 => {
-                self.viewport_x = value
-            },
+            0xff42 => self.viewport_y = value,
+            0xff43 => self.viewport_x = value,
             0xff45 => {
                 self.lyc = value;
                 if self.lyc_int && self.line == self.lyc {
                     self.interrupt |= u8::from(Interrupt::LcdStat);
                 }
-            },
+            }
             0xff47 => {
                 self.bg_palette.id_0 = value & 0b00000011;
                 self.bg_palette.id_1 = (value & 0b00001100) >> 2;
@@ -389,19 +405,14 @@ impl Ppu {
                 self.obj_palette_1.id_2 = (value & 0b00110000) >> 4;
                 self.obj_palette_1.id_3 = (value & 0b11000000) >> 6;
             }
-            0xff4a => {
-                self.window_y = value },
-            0xff4b => {
-                self.window_x = value },
-            0x8000..=0x97ff => {
-                self.tiles[(addr - 0x8000) as usize / 16].set_byte((addr - 0x8000) as usize % 16, value) },
-            0x9800..=0x9bff =>
-                self.tile_map_0[(addr - 0x9800) as usize] = value,
-            0x9c00..=0x9fff =>
-                self.tile_map_1[(addr - 0x9c00) as usize] = value,
+            0xff4a => self.window_y = value,
+            0xff4b => self.window_x = value,
+            0x8000..=0x97ff => self.tiles[(addr - 0x8000) as usize / 16]
+                .set_byte((addr - 0x8000) as usize % 16, value),
+            0x9800..=0x9bff => self.tile_map_0[(addr - 0x9800) as usize] = value,
+            0x9c00..=0x9fff => self.tile_map_1[(addr - 0x9c00) as usize] = value,
 
-            0xFE00..=0xFE9F => {
-                self.oam[(addr - 0xFE00) as usize] = value },
+            0xFE00..=0xFE9F => self.oam[(addr - 0xFE00) as usize] = value,
             _ => unimplemented!("PPU write to unimplemented register: {:#06x}", addr),
         }
     }
@@ -410,7 +421,7 @@ impl Ppu {
         self.clear_scanline(0);
         if self.show_vram {
             self.dump_vram();
-            return
+            return;
         }
         if self.bg_win_enable {
             self.render_background();
@@ -426,14 +437,23 @@ impl Ppu {
 
     fn render_background(&mut self) {
         puffin::profile_function!();
-        let tilemap = if self.bg_tile_map { &self.tile_map_1 } else { &self.tile_map_0 };
+        let tilemap = if self.bg_tile_map {
+            &self.tile_map_1
+        } else {
+            &self.tile_map_0
+        };
         let scx = self.viewport_x;
         let scy = self.viewport_y;
-        
+
         let tilemap_line = self.line as usize / 8;
-        for (i, tile_id) in tilemap[tilemap_line * 32..(tilemap_line + 1) * 32].iter().enumerate() {
+        for (i, tile_id) in tilemap[tilemap_line * 32..(tilemap_line + 1) * 32]
+            .iter()
+            .enumerate()
+        {
             puffin::profile_scope!("Render bg tile");
-            let tile_index = if self.bg_win_tile_data { *tile_id as usize } else { 
+            let tile_index = if self.bg_win_tile_data {
+                *tile_id as usize
+            } else {
                 (0x100 + *tile_id as i8 as i16) as usize
             };
             let tile = self.tiles[tile_index].pixels;
@@ -446,9 +466,16 @@ impl Ppu {
                     3 => Color32::from_rgba_unmultiplied(0, 0, 0, 255),
                     _ => unreachable!(),
                 };
-                let draw_at = scx as usize + i * 8 + (8-x);
+                let draw_at = scx as usize + i * 8 + (8 - x);
                 if draw_at < SCREEN_WIDTH {
-                    set_pixel!(self, draw_at as u8, color.r(), color.g(), color.b(), color.a());
+                    set_pixel!(
+                        self,
+                        draw_at as u8,
+                        color.r(),
+                        color.g(),
+                        color.b(),
+                        color.a()
+                    );
                 }
             }
         }
@@ -458,17 +485,20 @@ impl Ppu {
         puffin::profile_function!();
         self.framebuffer = [color; 160 * 144 * 4];
     }
-    
+
     fn clear_scanline(&mut self, color: u8) {
         puffin::profile_function!();
-        self.framebuffer[self.line as usize * SCREEN_WIDTH * 4..(self.line as usize + 1) * SCREEN_WIDTH * 4].fill(color);
+        self.framebuffer
+            [self.line as usize * SCREEN_WIDTH * 4..(self.line as usize + 1) * SCREEN_WIDTH * 4]
+            .fill(color);
     }
 
     // render all loaded sprites on the current scanline
     fn dump_vram(&mut self) {
         puffin::profile_function!();
         // tiles are 8x8. we are rendering just a single scanline in this function. lay out all tiles in a row, wrapping to the next row
-        for tile_x in 0..20 { // can fit 20 tiles on screen
+        for tile_x in 0..20 {
+            // can fit 20 tiles on screen
             let tile_y = self.line / 8;
             let tile_index = tile_y as usize * 20 + tile_x;
             let tile = &self.tiles[tile_index];
@@ -482,7 +512,14 @@ impl Ppu {
                     3 => Color32::from_rgba_unmultiplied(0, 0, 0, 255),
                     _ => unreachable!(),
                 };
-                set_pixel!(self, tile_x as u8 * 8 + x as u8, color.r(), color.g(), color.b(), color.a());
+                set_pixel!(
+                    self,
+                    tile_x as u8 * 8 + x as u8,
+                    color.r(),
+                    color.g(),
+                    color.b(),
+                    color.a()
+                );
             }
         }
     }
@@ -491,7 +528,8 @@ impl Ppu {
     fn render_objects(&mut self) {
         puffin::profile_function!();
         // all objects that are visible on the current scanline
-        let mut draw = self.oam
+        let mut draw = self
+            .oam
             .chunks_exact(4)
             .filter(|obj| {
                 let y = obj[0] as i32 - 16;
@@ -502,7 +540,7 @@ impl Ppu {
         // draw.sort_by_key(|obj| obj[1]);  // todo do we need to sort this?
         for obj in draw {
             puffin::profile_scope!("Render sprite");
-            let x = obj[1] as i32 - 8;  // sprite's position on screen
+            let x = obj[1] as i32 - 8; // sprite's position on screen
             let y = obj[0] as i32 - 16;
             let tile_id = obj[2];
             let flags = obj[3];
@@ -516,7 +554,9 @@ impl Ppu {
                 let sprite_line = self.line as i32 - y;
                 let line = if flip_y { 7 - sprite_line } else { sprite_line };
                 let pixel = tile[line as usize * 8 + i as usize];
-                if pixel == 0 { continue; }
+                if pixel == 0 {
+                    continue;
+                }
                 let color = match pixel {
                     0 => Color32::from_rgba_unmultiplied(255, 255, 255, 255),
                     1 => Color32::from_rgba_unmultiplied(192, 192, 192, 255),
@@ -524,7 +564,14 @@ impl Ppu {
                     3 => Color32::from_rgba_unmultiplied(0, 0, 0, 255),
                     _ => unreachable!(),
                 };
-                set_pixel!(self, x.wrapping_add(8-i), color.r(), color.g(), color.b(), color.a());
+                set_pixel!(
+                    self,
+                    x.wrapping_add(8 - i),
+                    color.r(),
+                    color.g(),
+                    color.b(),
+                    color.a()
+                );
             }
         }
     }
@@ -539,4 +586,3 @@ impl Ppu {
         }
     }
 }
-
