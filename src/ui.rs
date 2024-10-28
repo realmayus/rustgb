@@ -1,5 +1,3 @@
-
-
 use eframe::egui::util::History;
 
 pub struct FrameHistory {

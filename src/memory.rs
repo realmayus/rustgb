@@ -1,11 +1,9 @@
-use std::sync::mpsc::Sender;
-use bitflags::bitflags;
-use log::{debug, info, warn};
-use crate::{ControlMsg, Flags};
 use crate::joypad::Joypad;
 use crate::ppu::Ppu;
 use crate::serial::Serial;
 use crate::timer::Timer;
+use crate::{ControlMsg, Flags};
+use log::warn;
 
 #[derive(Default, Copy, Clone, Debug)]
 pub struct RegisterPairValue {
@@ -67,15 +65,16 @@ pub struct RomOnlyMbc {
 }
 impl Mbc for RomOnlyMbc {
     fn new(rom: Vec<u8>) -> Self {
-        Self {
-            rom,
-        }
+        Self { rom }
     }
     fn read_rom(&self, addr: u16) -> u8 {
         self.rom[addr as usize]
     }
     fn read_ram(&self, addr: u16) -> u8 {
-        warn!("RomOnlyMbc doesn't have any RAM banks, reading from 0x{:x}", addr);
+        warn!(
+            "RomOnlyMbc doesn't have any RAM banks, reading from 0x{:x}",
+            addr
+        );
         0xff
     }
     fn write(&mut self, _addr: u16, _value: u8) {
@@ -102,7 +101,7 @@ impl Mbc for Mbc1 {
     fn read_rom(&self, addr: u16) -> u8 {
         todo!()
     }
-    
+
     fn read_ram(&self, addr: u16) -> u8 {
         if !self.enable_ram {
             warn!("RAM is not enabled, reading from 0x{:x}", addr);
@@ -119,7 +118,7 @@ impl Mbc for Mbc1 {
         match addr {
             0x0000..=0x1fff => {
                 self.enable_ram = value & 0x0f == 0x0a;
-            },
+            }
             0x2000..=0x3fff => {
                 self.rom_bank = (value & 0x1f) as usize;
             }
@@ -141,7 +140,9 @@ pub trait Memory {
     fn get(&self, addr: u16) -> u8;
     fn write(&mut self, addr: u16, value: u8);
 
-    fn update<F>(&mut self, addr: u16, closure: F) where F: FnOnce() -> u8;
+    fn update<F>(&mut self, addr: u16, closure: F)
+    where
+        F: FnOnce() -> u8;
 
     fn cycle(&mut self);
 
@@ -174,7 +175,10 @@ pub struct MappedMemory<MBC: Mbc> {
     int_request: u8,
 }
 
-impl<MBC> MappedMemory<MBC> where MBC: Mbc {
+impl<MBC> MappedMemory<MBC>
+where
+    MBC: Mbc,
+{
     pub fn new(mbc: MBC, ppu: Ppu, timer: Timer) -> Self {
         let mut mmu = Self {
             mbc,
@@ -229,7 +233,6 @@ impl<MBC> MappedMemory<MBC> where MBC: Mbc {
         mmu.write(0xFF4A, 0x00); // WY
         mmu.write(0xFF4B, 0x00); // WX
 
-
         mmu
     }
 
@@ -243,18 +246,26 @@ impl<MBC> MappedMemory<MBC> where MBC: Mbc {
     }
 }
 
-impl<MBC> Memory for MappedMemory<MBC> where MBC: Mbc {
-    
+impl<MBC> Memory for MappedMemory<MBC>
+where
+    MBC: Mbc,
+{
     fn get(&self, addr: u16) -> u8 {
         // debug!("First tile: {:02X?}", &self.mem[0x8000..0x8016]);
         let addr = if addr > 0xE000 && addr < 0xFE00 {
             addr - 0x2000
-        } else { addr };
+        } else {
+            addr
+        };
         match addr {
             0x0000..=0x7FFF | 0xA000..=0xBFFF => self.mbc.read_rom(addr),
-            0x8000..=0x9FFF | 0xFE00..=0xFE9F | 0xFF40..=0xFF4B | 0xFF68..=0xFF6B => self.ppu.read(addr),
+            0x8000..=0x9FFF | 0xFE00..=0xFE9F | 0xFF40..=0xFF4B | 0xFF68..=0xFF6B => {
+                self.ppu.read(addr)
+            }
             0xC000..=0xCFFF | 0xE000..=0xEFFF => self.work_ram[(addr - 0xC000) as usize],
-            0xD000..=0xDFFF | 0xF000..=0xFDFF => self.work_ram[(self.wram_bank as usize * 0x1000) | addr as usize & 0x0FFF],
+            0xD000..=0xDFFF | 0xF000..=0xFDFF => {
+                self.work_ram[(self.wram_bank as usize * 0x1000) | addr as usize & 0x0FFF]
+            }
             0xFF00 => self.joypad.read(),
             0xFF01..=0xFF02 => self.serial.read(addr),
             0xFF0F => self.requested_interrupts(),
@@ -273,26 +284,32 @@ impl<MBC> Memory for MappedMemory<MBC> where MBC: Mbc {
         match addr {
             0x0000..=0x7FFF | 0xA000..=0xBFFF => self.mbc.write(addr, value),
             0xFF46 => self.dma_transfer(value),
-            0x8000..=0x9FFF | 0xFE00..=0xFE9F | 0xFF40..=0xFF4B | 0xFF68..=0xFF6B => self.ppu.write(addr, value),
+            0x8000..=0x9FFF | 0xFE00..=0xFE9F | 0xFF40..=0xFF4B | 0xFF68..=0xFF6B => {
+                self.ppu.write(addr, value)
+            }
             0xC000..=0xCFFF | 0xE000..=0xEFFF => self.work_ram[(addr - 0xC000) as usize] = value,
-            0xD000..=0xDFFF | 0xF000..=0xFDFF => self.work_ram[(self.wram_bank as usize * 0x1000) | addr as usize & 0x0FFF] = value,
+            0xD000..=0xDFFF | 0xF000..=0xFDFF => {
+                self.work_ram[(self.wram_bank as usize * 0x1000) | addr as usize & 0x0FFF] = value
+            }
             0xFF00 => self.joypad.write(value),
             0xFF01..=0xFF02 => self.serial.write(addr, value),
             0xFF04..=0xFF07 => self.timer.write(addr, value),
             0xFF0F => self.int_request = value,
             0xFF10..=0xFF3F => { /* audio */ }
             0xFF80..=0xFFFE => self.high_ram[(addr - 0xFF80) as usize] = value,
-            0xFFFF => { 
+            0xFFFF => {
                 println!("Setting interrupt enable to {:08b}", value);
-                self.int_enable = value 
-            },
+                self.int_enable = value
+            }
             0xFEA0..=0xFEFF => { /* Unusable memory */ }
             _ => warn!("Write to unimplemented memory address: {:02X?}", addr),
-
         }
     }
 
-    fn update<F>(&mut self, addr: u16, closure: F) where F: FnOnce() -> u8 {
+    fn update<F>(&mut self, addr: u16, closure: F)
+    where
+        F: FnOnce() -> u8,
+    {
         let result = closure();
         self.write(addr, result);
     }
@@ -343,14 +360,15 @@ impl<MBC> Memory for MappedMemory<MBC> where MBC: Mbc {
         self.int_request &= !u8::from(interrupt);
     }
 
-
     fn control_msg(&mut self, msg: ControlMsg) {
         println!("Received control message: {:?}", msg);
         match msg {
-            ControlMsg::Debug => { println!("{:08b}", self.enabled_interrupts()) },
+            ControlMsg::Debug => {
+                println!("{:08b}", self.enabled_interrupts())
+            }
             ControlMsg::ShowVRam(show) => {
                 self.ppu.show_vram = show;
-            },
+            }
             ControlMsg::KeyDown(key) => self.joypad.keydown(key),
             ControlMsg::KeyUp(key) => self.joypad.keyup(key),
             _ => panic!("Unhandled control message: {:?}", msg),
@@ -364,7 +382,13 @@ pub struct LinearMemory<const SIZE: usize> {
     int_request: u8,
 }
 
-impl <const SIZE: usize> LinearMemory<SIZE> {
+impl<const SIZE: usize> Default for LinearMemory<SIZE> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<const SIZE: usize> LinearMemory<SIZE> {
     pub fn new() -> Self {
         Self {
             mem: [0; SIZE],
@@ -374,7 +398,7 @@ impl <const SIZE: usize> LinearMemory<SIZE> {
     }
 }
 
-impl<const SIZE:usize> Memory for LinearMemory<SIZE> {
+impl<const SIZE: usize> Memory for LinearMemory<SIZE> {
     fn get(&self, addr: u16) -> u8 {
         self.mem[addr as usize]
     }
@@ -383,13 +407,15 @@ impl<const SIZE:usize> Memory for LinearMemory<SIZE> {
         self.mem[addr as usize] = value;
     }
 
-    fn update<F>(&mut self, addr: u16, closure: F) where F: FnOnce() -> u8 {
+    fn update<F>(&mut self, addr: u16, closure: F)
+    where
+        F: FnOnce() -> u8,
+    {
         let result = closure();
         self.write(addr, result);
     }
 
-    fn cycle(&mut self) {
-    }
+    fn cycle(&mut self) {}
 
     fn enable_interrupt(&mut self, interrupt: Interrupt, enable: bool) {
         let mask = u8::from(interrupt);
@@ -413,7 +439,6 @@ impl<const SIZE:usize> Memory for LinearMemory<SIZE> {
     fn requested_interrupts(&self) -> u8 {
         self.int_request
     }
-
 
     fn clear_requested_interrupt(&mut self, interrupt: Interrupt) {
         self.int_request &= !u8::from(interrupt);
@@ -440,8 +465,6 @@ impl From<Interrupt> for u8 {
         }
     }
 }
-
-
 
 impl From<u8> for Interrupt {
     fn from(value: u8) -> Interrupt {

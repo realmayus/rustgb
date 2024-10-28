@@ -56,7 +56,7 @@ impl Joypad {
     fn update(&mut self) {
         let old_data = self.data & 0xF;
         let mut new_data = 0xF;
-        
+
         if self.data & 0x10 == 0 {
             new_data &= self.dpad;
         }
@@ -66,7 +66,7 @@ impl Joypad {
         if old_data == 0xF && new_data != 0xF {
             self.interrupt = 1;
         }
-        
+
         self.data = (self.data & 0xF0) | new_data;
     }
 

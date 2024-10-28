@@ -1,4 +1,4 @@
-use crate::memory::{Interrupt, MappedMemory};
+use crate::memory::Interrupt;
 
 pub struct Timer {
     div: u8,
@@ -7,6 +7,12 @@ pub struct Timer {
     tac: u8,
     div_countdown: u8,
     timer_countdown: i32,
+}
+
+impl Default for Timer {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Timer {
@@ -20,7 +26,7 @@ impl Timer {
             timer_countdown: 0,
         }
     }
-    
+
     pub fn cycle(&mut self) -> Option<Interrupt> {
         let mut interrupt = None;
         if self.div_countdown == 0 {
@@ -30,7 +36,8 @@ impl Timer {
             self.div_countdown -= 1;
         }
         let timer_enabled = self.tac & 0b100 == 0b100;
-        if self.timer_countdown == 0 && timer_enabled {  // if timer is enabled
+        if self.timer_countdown == 0 && timer_enabled {
+            // if timer is enabled
             self.tima = self.tima.wrapping_add(1);
             if self.tima == 0 {
                 self.tima = self.tma;
@@ -47,7 +54,7 @@ impl Timer {
         self.timer_countdown = duration;
         interrupt
     }
-    
+
     pub fn read(&self, addr: u16) -> u8 {
         println!("Timer read: {:#X}", addr);
         match addr {
@@ -58,7 +65,7 @@ impl Timer {
             _ => unreachable!(),
         }
     }
-    
+
     pub fn write(&mut self, addr: u16, value: u8) {
         println!("Timer write: {:#X} {:#X}", addr, value);
         match addr {
