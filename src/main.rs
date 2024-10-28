@@ -152,6 +152,7 @@ pub fn main() {
     // let boot_rom = fs::read("gb-test-roms-master/cpu_instrs/individual/04-op r,imm.gb").expect("Unable to read boot rom");
     
     let rom = fs::read("roms/tetris.gb").expect("Unable to read rom");
+    // let rom = fs::read("gb-test-roms-master/cpu_instrs/individual/01-special.gb").expect("Unable to read rom");
 
     let title = rom[0x134..0x143]
         .iter()

@@ -57,7 +57,8 @@ impl From<u16> for RegisterPairValue {
 
 pub trait Mbc {
     fn new(rom: Vec<u8>) -> Self;
-    fn read(&self, addr: u16) -> u8;
+    fn read_rom(&self, addr: u16) -> u8;
+    fn read_ram(&self, addr: u16) -> u8;
     fn write(&mut self, addr: u16, value: u8);
 }
 
@@ -70,15 +71,71 @@ impl Mbc for RomOnlyMbc {
             rom,
         }
     }
-    fn read(&self, addr: u16) -> u8 {
+    fn read_rom(&self, addr: u16) -> u8 {
         self.rom[addr as usize]
+    }
+    fn read_ram(&self, addr: u16) -> u8 {
+        warn!("RomOnlyMbc doesn't have any RAM banks, reading from 0x{:x}", addr);
+        0xff
     }
     fn write(&mut self, _addr: u16, _value: u8) {
         // Do nothing
     }
 }
 
+pub struct Mbc1 {
+    rom: Vec<u8>,
+    ram: Vec<u8>,
+    enable_ram: bool,
+    rom_bank: usize,
+    ram_bank: usize,
+    num_rambanks: usize,
+    num_rombanks: usize,
+    banking_mode: bool,
+}
 
+impl Mbc for Mbc1 {
+    fn new(rom: Vec<u8>) -> Self {
+        todo!()
+    }
+
+    fn read_rom(&self, addr: u16) -> u8 {
+        todo!()
+    }
+    
+    fn read_ram(&self, addr: u16) -> u8 {
+        if !self.enable_ram {
+            warn!("RAM is not enabled, reading from 0x{:x}", addr);
+            return 0xff;
+        }
+        if self.banking_mode {
+            self.ram[(self.ram_bank * 0x2000) | (addr as usize & 0x1fff)]
+        } else {
+            self.ram[addr as usize & 0x1fff]
+        }
+    }
+
+    fn write(&mut self, addr: u16, value: u8) {
+        match addr {
+            0x0000..=0x1fff => {
+                self.enable_ram = value & 0x0f == 0x0a;
+            },
+            0x2000..=0x3fff => {
+                self.rom_bank = (value & 0x1f) as usize;
+            }
+            0x4000..=0x5fff => {
+                if self.num_rombanks > 0x20 {
+                    panic!("Only at most 0x20 rom banks is supported");
+                }
+                self.ram_bank = (value & 0x03) as usize;
+            }
+            0x6000..=0x7fff => {
+                self.banking_mode = value & 0x01 == 0x01;
+            }
+            _ => warn!("[Mbc1] Write to unsupported address 0x{:04X}", addr),
+        }
+    }
+}
 
 pub trait Memory {
     fn get(&self, addr: u16) -> u8;
@@ -194,7 +251,7 @@ impl<MBC> Memory for MappedMemory<MBC> where MBC: Mbc {
             addr - 0x2000
         } else { addr };
         match addr {
-            0x0000..=0x7FFF | 0xA000..=0xBFFF => self.mbc.read(addr),
+            0x0000..=0x7FFF | 0xA000..=0xBFFF => self.mbc.read_rom(addr),
             0x8000..=0x9FFF | 0xFE00..=0xFE9F | 0xFF40..=0xFF4B | 0xFF68..=0xFF6B => self.ppu.read(addr),
             0xC000..=0xCFFF | 0xE000..=0xEFFF => self.work_ram[(addr - 0xC000) as usize],
             0xD000..=0xDFFF | 0xF000..=0xFDFF => self.work_ram[(self.wram_bank as usize * 0x1000) | addr as usize & 0x0FFF],
