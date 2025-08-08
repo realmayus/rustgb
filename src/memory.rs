@@ -3,7 +3,7 @@ use crate::ppu::Ppu;
 use crate::serial::Serial;
 use crate::timer::Timer;
 use crate::{ControlMsg, Flags};
-use log::warn;
+use log::{debug, info, warn};
 
 #[derive(Default, Copy, Clone, Debug)]
 pub struct RegisterPairValue {
@@ -298,7 +298,7 @@ where
             0xFF10..=0xFF3F => { /* audio */ }
             0xFF80..=0xFFFE => self.high_ram[(addr - 0xFF80) as usize] = value,
             0xFFFF => {
-                println!("Setting interrupt enable to {:08b}", value);
+                debug!("Setting interrupt enable to {:08b}", value);
                 self.int_enable = value
             }
             0xFEA0..=0xFEFF => { /* Unusable memory */ }
@@ -314,20 +314,22 @@ where
         self.write(addr, result);
     }
 
-    fn cycle(&mut self) {
+    fn cycle(&mut self) { // one machine cycle
         let interrupt1 = self.timer.cycle();
         if let Some(interrupt) = interrupt1 {
             self.request_interrupt(u8::from(interrupt));
         }
-        self.ppu.cycle();
-        if self.ppu.interrupt != 0 {
-            self.request_interrupt(self.ppu.interrupt);
-            self.ppu.interrupt = 0;
-        }
-        if self.joypad.interrupt != 0 {
-            // println!("Requesting joypad interrupt");
-            self.request_interrupt(self.joypad.interrupt);
-            self.joypad.interrupt = 0;
+        for _ in 0..4 {
+            self.ppu.cycle();
+            if self.ppu.interrupt != 0 {
+                self.request_interrupt(self.ppu.interrupt);
+                self.ppu.interrupt = 0;
+            }
+            if self.joypad.interrupt != 0 {
+                // println!("Requesting joypad interrupt");
+                self.request_interrupt(self.joypad.interrupt);
+                self.joypad.interrupt = 0;
+            }
         }
     }
 
@@ -361,10 +363,10 @@ where
     }
 
     fn control_msg(&mut self, msg: ControlMsg) {
-        println!("Received control message: {:?}", msg);
+        debug!("Received control message: {:?}", msg);
         match msg {
             ControlMsg::Debug => {
-                println!("{:08b}", self.enabled_interrupts())
+                info!("{:08b}", self.enabled_interrupts())
             }
             ControlMsg::ShowVRam(show) => {
                 self.ppu.show_vram = show;

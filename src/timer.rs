@@ -1,3 +1,4 @@
+use log::debug;
 use crate::memory::Interrupt;
 
 pub struct Timer {
@@ -5,7 +6,7 @@ pub struct Timer {
     tima: u8,
     tma: u8,
     tac: u8,
-    div_countdown: u8,
+    div_countdown: u16,
     timer_countdown: i32,
 }
 
@@ -22,7 +23,7 @@ impl Timer {
             tima: 0,
             tma: 0,
             tac: 0,
-            div_countdown: 255,
+            div_countdown: 64 * 4,
             timer_countdown: 0,
         }
     }
@@ -30,7 +31,7 @@ impl Timer {
     pub fn cycle(&mut self) -> Option<Interrupt> {
         let mut interrupt = None;
         if self.div_countdown == 0 {
-            self.div_countdown = 255;
+            self.div_countdown = 64 * 4;
             self.div = self.div.wrapping_add(1);
         } else {
             self.div_countdown -= 1;
@@ -43,20 +44,23 @@ impl Timer {
                 self.tima = self.tma;
                 interrupt = Some(Interrupt::Timer);
             }
+            let duration = match self.tac & 0b11 {
+                0b00 => 256,
+                0b01 => 4,
+                0b10 => 16,
+                0b11 => 64,
+                _ => unreachable!(),
+            };
+            self.timer_countdown = duration * 4;
         }
-        let duration = match self.tac & 0b11 {
-            0b00 => 256,
-            0b01 => 4,
-            0b10 => 16,
-            0b11 => 64,
-            _ => unreachable!(),
-        };
-        self.timer_countdown = duration;
+        if timer_enabled {
+            self.timer_countdown -= 1;
+        }
         interrupt
     }
 
     pub fn read(&self, addr: u16) -> u8 {
-        println!("Timer read: {:#X}", addr);
+        debug!("Timer read: {:#X}", addr);
         match addr {
             0xFF04 => self.div,
             0xFF05 => self.tima,
@@ -67,9 +71,9 @@ impl Timer {
     }
 
     pub fn write(&mut self, addr: u16, value: u8) {
-        println!("Timer write: {:#X} {:#X}", addr, value);
+        debug!("Timer write: {:#X} {:#X}", addr, value);
         match addr {
-            0xFF04 => self.div = value,
+            0xFF04 => self.div = 0,
             0xFF05 => self.tima = value,
             0xFF06 => self.tma = value,
             0xFF07 => self.tac = value,

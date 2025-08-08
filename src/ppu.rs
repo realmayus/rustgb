@@ -29,6 +29,15 @@ macro_rules! set_pixel {
     };
 }
 
+macro_rules! set_dbg_pixel {
+    ($self:ident, $x:expr, $r:expr, $g:expr, $b:expr, $a:expr) => {
+        $self.debug_framebuffer[($self.line as usize * SCREEN_WIDTH * 4) + $x as usize * 4] = $r;
+        $self.debug_framebuffer[($self.line as usize * SCREEN_WIDTH * 4) + $x as usize * 4 + 1] = $g;
+        $self.debug_framebuffer[($self.line as usize * SCREEN_WIDTH * 4) + $x as usize * 4 + 2] = $b;
+        $self.debug_framebuffer[($self.line as usize * SCREEN_WIDTH * 4) + $x as usize * 4 + 3] = $a;
+    };
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 enum PpuMode {
     OamScan = 2,
@@ -69,10 +78,11 @@ impl Default for Palette {
 }
 
 pub struct Ppu {
-    pub show_vram: bool,
+    pub show_vram: bool,  // for debugging purposes
     mode: PpuMode,
     pub mode_counter: usize,
     framebuffer: [u8; 160 * 144 * 4],
+    debug_framebuffer: Box<[u8; 160 * 144 * 4]>,
     vram: [u8; 0x2000],
     pub(crate) oam: [u8; 0xa0],
     line: u8,
@@ -97,7 +107,7 @@ pub struct Ppu {
 
     bg_palette: Palette,
     obj_palette_0: Palette,
-    obj_palette_1: Palette,
+    obj_palette_1: Palette,  // 4 B
 
     window_x: u8, // window x position plus 7
     window_y: u8,
@@ -109,7 +119,9 @@ pub struct Ppu {
     win_y_trigger: bool,
     pub(crate) interrupt: u8,
     pub displaybuffer: Arc<Mutex<Vec<Color32>>>,
+    pub debug_displaybuffer: Arc<Mutex<Vec<Color32>>>,
     pub displaybuffer_dirty: Arc<Mutex<bool>>,
+    pub debug_displaybuffer_dirty: Arc<Mutex<bool>>,
 }
 
 // makes it easier to work with tiles, directly converts weird 16 byte format to 8x8 pixel format
@@ -153,15 +165,20 @@ impl Tile {
 impl Ppu {
     pub fn new(
         displaybuffer: Arc<Mutex<Vec<Color32>>>,
+        debug_displaybuffer: Arc<Mutex<Vec<Color32>>>,
         displaybuffer_dirty: Arc<Mutex<bool>>,
+        debug_displaybuffer_dirty: Arc<Mutex<bool>>,
     ) -> Self {
         Self {
-            show_vram: false,
+            show_vram: true,  // for debugging purposes
             mode: PpuMode::HBlank,
             mode_counter: 0,
             framebuffer: [255; 160 * 144 * 4],
+            debug_framebuffer: Box::new([255; 160 * 144 * 4]),
             displaybuffer,
             displaybuffer_dirty,
+            debug_displaybuffer,
+            debug_displaybuffer_dirty,
             line: 0,
             lyc: 0,
             bg_win_enable: false,
@@ -275,6 +292,15 @@ impl Ppu {
             .map(|pixel| Color32::from_rgba_unmultiplied(pixel[0], pixel[1], pixel[2], pixel[3]))
             .collect::<Vec<_>>();
         *self.displaybuffer_dirty.lock().unwrap() = true;
+        if self.show_vram {
+            *self.debug_displaybuffer.lock().unwrap() = self
+                .debug_framebuffer
+                .chunks_exact(4)
+                .map(|pixel| Color32::from_rgba_unmultiplied(pixel[0], pixel[1], pixel[2], pixel[3]))
+                .collect::<Vec<_>>();
+            *self.debug_displaybuffer_dirty.lock().unwrap() = true;
+        }
+
     }
 
     pub fn read(&self, addr: u16) -> u8 {
@@ -418,7 +444,6 @@ impl Ppu {
         self.clear_scanline(0);
         if self.show_vram {
             self.dump_vram();
-            return;
         }
         if self.bg_win_enable {
             self.render_background();
@@ -509,7 +534,7 @@ impl Ppu {
                     3 => Color32::from_rgba_unmultiplied(0, 0, 0, 255),
                     _ => unreachable!(),
                 };
-                set_pixel!(
+                set_dbg_pixel!(
                     self,
                     tile_x as u8 * 8 + x as u8,
                     color.r(),

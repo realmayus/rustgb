@@ -14,7 +14,7 @@ use crate::Register;
 use crate::{Flags, RegisterPair, RegisterPairMem, RegisterPairStk};
 use log::{debug, info};
 use std::sync::mpsc::Receiver;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 pub struct Cpu<M: Memory> {
     af: RegisterPairValue,
@@ -58,6 +58,20 @@ where
             di_ctr: 0,
             ei_ctr: 0,
         }
+    }
+    
+    pub fn reset(&mut self) {
+        self.af = RegisterPairValue::from(0x0100 | Flags::ZERO.bits() as u16);
+        self.bc = RegisterPairValue::from(0x0013);
+        self.de = RegisterPairValue::from(0x00D8);
+        self.hl = RegisterPairValue::from(0x014D);
+        self.sp = RegisterPairValue::from(0xFFFE);
+        self.pc = RegisterPairValue::from(0x0100);
+        self.ime = false;
+        self.stall = 0;
+        self.halted = false;
+        self.di_ctr = 0;
+        self.ei_ctr = 0;
     }
 
     pub fn register(&self, reg_id: Register) -> u8 {
@@ -141,24 +155,30 @@ where
     }
 
     pub fn run(&mut self) {
-        let frame_time = 16.74 / 1000.0; // s
-        let cycles_per_frame = 70224 / 4;
+        // Duration of one machine cycle (4 T-cycles)
+        let mcycle_duration = Duration::from_secs_f64(1.0 / 1_048_576.0);
+
+        let mut next_cycle_time = Instant::now();
+
         while !self.terminate {
-            puffin::profile_scope!("Cpu::cycle");
-            puffin::GlobalProfiler::lock().new_frame();
-
-            let before_frame = Instant::now();
-            for _ in 0..cycles_per_frame {
-                if let Ok(msg) = self.recv.try_recv() {
-                    self.control_message(msg);
-                }
-                self.cycle();
+            // Process any incoming messages without blocking
+            if let Ok(msg) = self.recv.try_recv() {
+                self.control_message(msg);
             }
-            let elapsed = before_frame.elapsed().as_secs_f64() * 1000.0;
 
-            if elapsed < frame_time {
-                // print!("delaying next cycle by {} ms", (cycle_time - elapsed) * 1000.0);
-                std::thread::sleep(std::time::Duration::from_secs_f64(frame_time - elapsed));
+            // Execute one machine cycle
+            self.cycle();
+
+            // Schedule the next cycle time
+            next_cycle_time += mcycle_duration;
+
+            // Sleep until it's time for the next cycle (if we're ahead of schedule)
+            let now = Instant::now();
+            if now < next_cycle_time {
+                std::thread::sleep(next_cycle_time - now);
+            } else {
+                // If we fall behind, skip sleeping to catch up
+                next_cycle_time = now;
             }
         }
     }
@@ -189,9 +209,8 @@ where
                 Instruction::Misc(x) => self.eval_misc(x),
             }
         }
-        self.handle_interrupt();
-
         self.mem.cycle();
+        self.handle_interrupt();
     }
 
     fn handle_interrupt(&mut self) {
@@ -240,7 +259,7 @@ where
                     "Requested interrupts: {:#08b}, enabled: {:#08b}",
                     requested, enabled
                 );
-                debug!("Handling Serial interrupt");
+                info!("Handling Serial interrupt");
                 self.mem.clear_requested_interrupt(Interrupt::Serial);
                 self.pc = RegisterPairValue::from(0x0058);
             }
@@ -913,7 +932,7 @@ where
             }
             MiscInstruction::Stop => {
                 self.halted = true; // TODO: not sure if this is correct...
-                info!("Stopping CPU...")
+                panic!("Stopping CPU...")
             }
         }
     }
@@ -921,6 +940,10 @@ where
     pub fn control_message(&mut self, msg: ControlMsg) {
         match msg {
             ControlMsg::Terminate => self.terminate = true,
+            ControlMsg::Reset => {
+                info!("Resetting CPU...");
+                self.reset();
+            }
             _ => self.mem.control_msg(msg),
         }
     }
