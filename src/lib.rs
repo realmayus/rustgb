@@ -189,4 +189,5 @@ pub enum ControlMsg {
     ShowVRam(bool),
     KeyDown(joypad::JoypadKey),
     KeyUp(joypad::JoypadKey),
+    Reset,
 }
